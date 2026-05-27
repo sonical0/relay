@@ -1,0 +1,76 @@
+name = "framework-init"
+description = "Lance le wizard d'initialisation du Relay pour un nouveau poste"
+
+prompt = """
+Lance le wizard d'initialisation du Relay pour un nouveau poste.
+
+## Étapes du wizard
+
+### Étape 1 — Détecter l'OS
+
+Détecter l'OS en cours :
+- Windows : PowerShell disponible ou $env:OS contient "Windows"
+- macOS : uname -s retourne Darwin
+- Linux : uname -s retourne Linux
+
+Confirmer à l'utilisateur : "OS détecté : [Windows/macOS/Linux]"
+
+---
+
+### Étape 2 — Configurer tandem-brain.yml
+
+Vérifier si ./tandem-brain.yml existe.
+
+Si absent : copier ./tandem-brain.template.yml → ./tandem-brain.yml
+
+Configurer dans tandem-brain.yml :
+- agents.claude.env et agents.gemini.env selon l'OS détecté
+- last_updated : date du jour (YYYY-MM-DD)
+- last_agent : gemini
+
+---
+
+### Étape 3 — Configurer wmux
+
+Windows :
+1. Tenter wmux ping
+2. Si succès → mettre wmux_status: operational dans tandem-brain.yml
+3. Si échec → expliquer ce qu'est wmux (panel navigateur visible en temps réel dans le terminal, intégré aux agents CLI). Proposer l'installation. Si accepté : guider. Si refusé : wmux_status: unavailable.
+
+macOS :
+wmux non disponible nativement. Proposer de rechercher des alternatives ensemble (Warp, iTerm2 + AppleScript, etc.). wmux_status: unavailable pour l'instant.
+
+Linux :
+wmux non disponible nativement. Alternatives possibles : tmux + xdotool. Proposer. wmux_status: unavailable si refus.
+
+---
+
+### Étape 4 — Vérifier l'accessibilité des dossiers
+
+Vérifier : ./PROJECTS/, ./SKILLS/, ./TOOLS/
+Lister ce qui est disponible depuis le cloud sync. Informer l'utilisateur.
+
+---
+
+### Étape 5 — RTK (Rust Token Killer)
+
+Vérifier : rtk --version
+
+Si absent, présenter RTK à l'utilisateur :
+RTK est un proxy CLI transparent qui réduit la consommation de tokens de 60 à 90% sur les opérations courantes (git, npm, etc.). Il fonctionne via un hook PreToolUse automatique. Par exemple, git status devient rtk git status sans que l'utilisateur ait à changer quoi que ce soit. Les économies sont visibles via rtk gain.
+
+Détecter les CLI installés (claude --version, gemini --version).
+Proposer l'installation de RTK + configuration du hook pour chaque CLI détecté.
+Si accepté : guider l'installation. rtk_status: operational dans tandem-brain.yml.
+Si refusé : rtk_status: declined dans tandem-brain.yml.
+Si déjà installé : rtk_status: operational dans tandem-brain.yml.
+
+---
+
+### Étape 6 — Résumé et log
+
+Afficher un résumé : OS, wmux status, RTK status, projets/skills/scripts disponibles.
+
+Écrire dans ./TANDEM_LOG.md :
+{date} [gemini] framework — Setup initial terminé. OS: [OS], wmux: [status], RTK: [status]
+"""

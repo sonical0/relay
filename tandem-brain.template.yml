@@ -1,0 +1,106 @@
+# Tandem Agent Brain — Template portable
+# INSTRUCTIONS : copier ce fichier en tandem-brain.yml avant utilisation.
+#   cp tandem-brain.template.yml tandem-brain.yml   (macOS/Linux)
+#   Copy-Item tandem-brain.template.yml tandem-brain.yml   (PowerShell)
+#
+# RÈGLE : Lire avant de commencer, écrire atomiquement (lire → modifier → sauvegarder).
+# CHEMIN : Tous les chemins sont relatifs depuis le dossier contenant ce fichier (TANDEM_ROOT).
+
+version: 2
+last_updated: "{{DATE}}"
+last_agent: "{{AGENT}}"
+wmux_status: unknown  # Lancer /framework-init pour configurer automatiquement
+
+architecture:
+  hub: "./tandem-brain.yml"
+  spoke_pattern: "./PROJECTS/{PROJECT}/"
+  skills_dir: "./SKILLS/"
+  tools_dir: "./TOOLS/"
+  note: >
+    Tous les chemins sont relatifs depuis TANDEM_ROOT (le dossier contenant ce fichier).
+    Scripts Node.js : path.dirname(fileURLToPath(import.meta.url)) + navigation relative.
+    Variable d'env $TANDEM_ROOT optionnelle — prend la priorité si définie.
+
+agents:
+  claude:
+    env: windows-powershell    # Adapter selon le poste : windows-powershell | macos-zsh | linux-bash
+    cli: claude-code
+    sandbox: null              # Pas de restriction de chemin
+    can:
+      - pdf-generation         # node TOOLS/html-to-pdf-generator.mjs
+      - node-scripts
+      - file-write             # Tout chemin
+      - webfetch
+      - websearch
+      - wmux-browser           # Si wmux_status: operational
+      - wmux-orchestrator      # /wmux:orchestrate (Claude uniquement)
+    cannot:
+      - playwright-live        # Utiliser wmux-browser à la place
+    notes: >
+      Fort sur finition : évaluation, génération HTML/PDF, merge. Accès complet au filesystem.
+      wmux-orchestrator disponible si wmux opérationnel.
+
+  gemini:
+    env: windows-powershell    # Adapter selon le poste
+    cli: gemini-cli
+    sandbox: "./"              # Relatif depuis TANDEM_ROOT
+    can:
+      - playwright-headless    # npx playwright — liveness checks, scraping SPAs
+      - node-scripts
+      - python
+      - subagents              # generalist, codebase_investigator
+      - shell-powershell
+      - file-write             # Dans le périmètre sandbox uniquement
+      - wmux-browser           # Si wmux_status: operational
+    cannot:
+      - paths-outside-sandbox  # Pas d'accès hors TANDEM_ROOT
+      - wmux-orchestrator      # Plugin Claude Code uniquement
+    notes: >
+      Fort sur ingestion : scan, scraping, batch N fichiers, liveness.
+      Sandboxé dans TANDEM_ROOT. Playwright headless disponible.
+
+conventions:
+  encoding_rule: >
+    Toujours utiliser UTF-8 (sans BOM).
+    INTERDICTION : Ne JAMAIS utiliser PowerShell pour transporter ou écrire du texte avec accents.
+    OBLIGATION : Passer par write_file/replace ou un script Node.js gérant l'UTF-8 nativement.
+  log_granularity: batch-summary    # 1 ligne par batch, pas par fichier individuel
+  liveness_owner: gemini            # Gemini gère les liveness checks (Playwright headless)
+  pdf_owner: claude                 # Claude gère la génération PDF
+  merge_owner: claude               # Claude gère les merges de données
+  evaluation_owner: claude          # Claude fait les évaluations fines
+  scan_owner: gemini                # Gemini lance les scans et pipelines de batch
+  bootstrap_generic: "./tandem-bootstrap.md"
+  bootstrap_file: ".tandem-bootstrap.md"    # Override projet dans chaque dossier projet
+  needs_bootstrap_sync: []          # Projets dont le .tandem-bootstrap.md local est périmé
+  tandem_log_global: "./TANDEM_LOG.md"
+  tools_manifest: "./TOOLS/README.md"
+  subagent_delegation:
+    format: "[Agent] CLAIM: [tâche] → [Autre Agent] peut déléguer [type-sous-agent] sur [scope] → résultat dans TANDEM_LOG"
+    claude_subagents: [Explore, Plan, general-purpose]
+    gemini_subagents: [generalist, codebase_investigator]
+    trigger_thresholds:
+      volume: ">3 fichiers à traiter ou commande haut-volume"
+      speculative: "recherche de bugs sur fichiers inconnus"
+      batch: "même tâche sur N fichiers"
+    sandbox_note: "Les sous-agents héritent du même sandbox que leur parent"
+  cross_orchestration:
+    orchestrator: claude          # Seul Claude peut initier /wmux:orchestrate
+    worker: gemini                # Gemini spawnable via wmux agent spawn
+
+  state_protocol: >
+    Lire tandem-brain.yml → TANDEM_LOG.md global (50 dernières lignes) → .tandem-bootstrap.md projet → commencer.
+    Écrire atomiquement : lire → modifier → sauvegarder en une seule opération.
+
+cross_project_log: []
+  # Format : {date: "YYYY-MM-DD", agent: claude|gemini, project: nom, action: "description"}
+
+projects: {}
+  # Ajouter ici les projets lors de leur création.
+  # Exemple :
+  #   mon-projet:
+  #     path: "./PROJECTS/mon-projet"
+  #     bootstrap: "PROJECTS/mon-projet/.tandem-bootstrap.md"
+  #     tandem_log: "./TANDEM_LOG.md"
+  #     claims: []
+  #     known_issues: []
