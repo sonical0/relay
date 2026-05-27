@@ -1,0 +1,48 @@
+# ─── Données personnelles — cloud sync uniquement ─────────────────────────────
+
+# PROJECTS : toutes les données perso sauf le template
+PROJECTS/*/
+!PROJECTS/_template/
+
+# TOOLS : README et template en git, scripts réels en cloud
+TOOLS/*.mjs
+!TOOLS/README.md
+
+# SKILLS : README et template en git, skill files réels en cloud
+SKILLS/**/SKILL.md
+!SKILLS/_template/SKILL.md
+
+# tandem-brain.yml actif (données perso, next_report_num, claims actifs...)
+tandem-brain.yml
+
+# TANDEM_LOG working copy (log complet — cloud uniquement)
+# Le stub vide reste en git pour éviter l'erreur "fichier manquant" au premier lancement.
+# Décommenter pour exclure le log entièrement du git :
+# TANDEM_LOG.md
+
+# ─── Sortie et fichiers générés ───────────────────────────────────────────────
+*.pdf
+
+
+# ─── Environnement local ──────────────────────────────────────────────────────
+.env
+.env.local
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ─── OS / éditeur ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# ─── wmux est une install locale, pas dans le framework ──────────────────────
+wmux/
+
+# ─── Credentials ──────────────────────────────────────────────────────────────
+*.secret.*
+.credentials.json
