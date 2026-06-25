@@ -1,34 +1,62 @@
+<div align="center">
+
 # Relay
 
-A portable coordination framework for multi-agent AI CLI workflows.
+**A portable coordination framework for multi-agent AI CLI workflows**
 
-[Lire en francais](README-fr.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)]()
+[![Last Commit](https://img.shields.io/github/last-commit/sonical0/relay?style=for-the-badge)](https://github.com/sonical0/relay/commits/master)
+
+[Lire en français](README-fr.md)
+
+</div>
 
 ---
 
-## Overview
+## The Problem
 
-AI CLI agents — Claude Code, Antigravity CLI (agy), and their peers — are individually capable of handling complex, multi-step tasks. The problem surfaces when you need several of them working on the same project: they have no shared memory, no awareness of what the other is doing, and no mechanism to divide labor cleanly. Context gets lost between sessions. Work gets duplicated. One agent undoes what another just did.
+AI CLI agents — Claude Code, Antigravity CLI (agy), Gemini CLI — are individually capable of complex, multi-step tasks. The problem surfaces when you need several of them working on the same project: they have no shared memory, no awareness of what the other is doing, and no mechanism to divide labor cleanly. Context gets lost between sessions. Work gets duplicated. One agent undoes what another just did.
 
-Relay is a hub-and-spoke coordination layer that sits between your agents and your projects. Every agent reads the same entry point on startup, consults the same shared state file, appends to the same activity log, and follows the same protocol for claiming tasks before starting them. The result is a coherent multi-agent workspace where Claude Code handles what it does best, Antigravity CLI handles what it does best, and neither steps on the other.
+## The Solution
 
-The framework is built around a single constraint: it must run anywhere. No hardcoded paths, no machine-specific configuration committed to version control. The skeleton lives in Git; personal project data lives in cloud sync. A new machine is operational in three commands.
+Relay is a hub-and-spoke coordination layer that sits between your agents and your projects. Every agent reads the same entry point on startup, consults the same shared state file, appends to the same activity log, and follows the same protocol for claiming tasks before starting them.
+
+```
+                        RELAY ROOT
+                            │
+          ┌─────────────────┼──────────────────┐
+          │                 │                  │
+      CLAUDE.md       ANTIGRAVITY.md     {agent}.md
+          │                 │
+     relay-brain.yml ◄──────┘    (shared state)
+     RELAY_LOG.md    ◄──────┘    (shared log)
+     RELAY_CHAT.md   ◄──────┘    (live channel)
+          │
+    ┌─────┴──────┐
+    │            │
+PROJECTS/     SKILLS/
+project-a/    project-a/SKILL.md
+project-b/    project-b/SKILL.md
+```
+
+The Git repository contains the **protocol** (agent-agnostic, shareable, stable). Personal project data lives in cloud sync. A new machine is operational in three commands.
 
 ---
 
 ## How It Works
 
-Relay uses a hub-and-spoke architecture. The hub is the Relay root directory itself — a set of shared files that all agents read before doing anything. Each project is a spoke: a subdirectory under `PROJECTS/` with its own instructions, role assignments, and local overrides.
+**`AGENTS.md`** — Universal entry point. Every CLI agent reads this file first. Defines the entry protocol, directory layout, shared conventions, and first-run behavior on a new machine.
 
-**AGENTS.md** is the universal entry point. Every CLI agent, regardless of vendor, reads this file first. It defines the entry protocol, directory layout, shared conventions, and how to handle the first run on a new machine. Agent-specific capabilities and limits live in `CLAUDE.md` and `ANTIGRAVITY.md` respectively — thin wrappers that reference `AGENTS.md` and add what is specific to that agent.
+**`relay-brain.yml`** — Shared state hub. Records available agents, registered projects, and currently claimed tasks. Agents write claims before starting long tasks and check for existing ones to avoid duplication.
 
-**relay-brain.yml** is the shared state hub. It records which agents are available and what they can do, which projects are registered, and which tasks are currently claimed. Before starting a long task, an agent writes a claim entry here. Before starting any task, an agent checks for existing claims to avoid duplication.
+**`RELAY_LOG.md`** — Shared activity log. Agents write batch-summaries here (max 5 bullets, 15 words each). The primary async coordination surface between agents.
 
-**RELAY_LOG.md** is the shared activity log — a running record of what each agent has done across all projects. Agents write batch-summaries here (max 5 bullets, 15 words each), not per-file traces. It is the primary coordination surface between agents operating asynchronously.
+**`SKILLS/`** — Per-project command routing tables. A skill file defines available modes, which files to load for each mode, when to spin up subagents, and how to auto-detect intent from user input.
 
-**SKILLS/** stores per-project command routing tables. A skill file defines the modes available for a project, which files to load for each mode, when to spin up subagents, and how to auto-detect intent from user input. Skills accumulate over time: once a recurring workflow is identified, it becomes reusable across sessions.
-
-**TOOLS/** contains shared utility scripts — Node.js ESM modules that have proven useful across at least two projects. Each tool exposes a standard CLI interface (args, exit codes, optional `--json` output) with no hardcoded paths.
+**`TOOLS/`** — Shared utility scripts. Each tool exposes a standard CLI interface (args, exit codes, optional `--json` output) with no hardcoded paths.
 
 ---
 
@@ -39,12 +67,11 @@ Relay uses a hub-and-spoke architecture. The hub is the Relay root directory its
 | State and configuration | YAML, Markdown |
 | Utility scripts | Node.js 18+ (ESM), Python 3.8+ |
 | Agent integration | Claude Code CLI, Antigravity CLI (agy) / Gemini CLI |
-| Message broker | HTTP + SQLite (relay-server.py, port 7432) |
+| Message broker | HTTP + SQLite (`relay-server.py`, port 7432) |
 | Hook system | Claude Code hooks (session / setup / stop) |
 | Framework versioning | Git |
 | Personal data sync | MEGA / Nextcloud (or any file sync service) |
-| Terminal browser panel | wmux (optional, Windows) |
-| Token optimization proxy | RTK — Rust Token Killer (optional) |
+| Token optimization | RTK — Rust Token Killer (optional) |
 
 ---
 
@@ -52,22 +79,16 @@ Relay uses a hub-and-spoke architecture. The hub is the Relay root directory its
 
 ### Prerequisites
 
-- Node.js 18 or later
-- Claude Code CLI and/or Antigravity CLI (`agy`) / Gemini CLI, authenticated
-- Git
+- **Node.js 18+**
+- **Claude Code CLI** and/or **Antigravity CLI** (`agy`) / **Gemini CLI**, authenticated
+- **Git**
 
 ### Installation
 
 ```bash
-git clone <repo-url> relay
+git clone https://github.com/sonical0/relay.git
 cd relay
-```
-
-Open the framework with your CLI agent:
-
-```bash
-claude .    # Claude Code
-agy         # Antigravity CLI (or: gemini)
+claude .
 ```
 
 Then run the initialization wizard:
@@ -76,7 +97,13 @@ Then run the initialization wizard:
 /framework-init
 ```
 
-The wizard detects your operating system, copies `relay-brain.template.yml` to `relay-brain.yml`, installs the Claude Code hooks, configures agent environment settings, proposes wmux installation (Windows) or equivalent alternatives (macOS, Linux), and offers to install and configure RTK for token optimization. The full manual setup procedure is documented in `SETUP.md`.
+The wizard will:
+1. Detect your OS and copy `relay-brain.template.yml` → `relay-brain.yml`
+2. Install the three Claude Code hooks into `~/.claude/settings.json`
+3. Check for wmux, RTK, and Antigravity CLI availability
+4. Print a configuration summary
+
+> Full manual setup is documented in [`SETUP.md`](SETUP.md).
 
 ---
 
@@ -91,21 +118,13 @@ relay/
   relay-bootstrap.md              Entry protocol — 8 mandatory steps, portable paths
   relay-brain.template.yml        Slim live template — copy to relay-brain.yml on setup
   relay-brain-ref.template.yml    Static reference template (agent caps, conventions)
-  relay-brain-ref.md              Static reference markdown — @included in CLAUDE.md
+  relay-brain-ref.md              Static reference — @included in CLAUDE.md
   relay-brain.yml                 Active state hub — gitignored, cloud-synced
   RELAY_LOG.md                    Shared activity log — cross-agent, cross-project
-  RELAY_CHAT.md                   Live chat between agents — gitignored, cloud-synced
-  SETUP.md                        New machine setup guide
-  README.md                       This file (English)
-  README-fr.md                    French version
+  RELAY_CHAT.md                   Live agent chat — gitignored, cloud-synced
 
   PROJECTS/
     _template/                    Starter files for a new project (committed)
-      AGENTS.md                   Project rules: role split, file structure, conventions
-      CLAUDE.md                   Inherits from ../../CLAUDE.md
-      GEMINI.md                   Inherits from ../../ANTIGRAVITY.md
-      .relay-bootstrap.md         Local overrides pointing to ../../relay-bootstrap.md
-      RELAY_LOG.md                Stub — activity goes to the global log
     {project-name}/               One directory per project (cloud-only, gitignored)
 
   SKILLS/
@@ -113,57 +132,47 @@ relay/
     {project-name}/SKILL.md       Per-project routing table (cloud-only, gitignored)
 
   TOOLS/
-    README.md                     Tool catalog and interface contract (committed)
     relay-server.py               Message broker — HTTP + SQLite, port 7432
     relay-chat.mjs                Live chat CLI — send, poll, read, status
     relay-agent-loop.sh           Agent listener — polls broker, dispatches to agy
-    relay-server-start.sh         Start broker in background
-    init-relay-project.mjs        Initialize a new project
-    html-to-pdf-generator.mjs     HTML → PDF (cloud-only, gitignored)
-    fix-mojibake.mjs              Fix broken UTF-8 encoding (cloud-only, gitignored)
+    relay-server-start.sh         Start broker in background (idempotent)
+    init-relay-project.mjs        Initialize a new project from template
 
   .claude/hooks/
     relay-session-hook.js         UserPromptSubmit: inject Relay boot context
     relay-setup-hook.js           SessionStart: auto-verify hooks are installed
     relay-stop-hook.js            Stop: verify RELAY_LOG.md is up to date
-  .claude/commands/
-    framework-init.md             /framework-init wizard for Claude Code
-  .gemini/commands/
-    framework-init.toml           /framework-init wizard for Antigravity/Gemini CLI
 ```
 
 ---
 
 ## Synchronization Model
 
-The framework separates two concerns: the protocol (agent-agnostic, shareable, stable) and the data (personal, volatile, machine-spanning).
+The framework separates two concerns: the **protocol** (shareable, stable, in Git) and the **data** (personal, volatile, in cloud sync).
 
 | Content | Git | Cloud sync |
-|---------|-----|------------|
-| AGENTS.md, CLAUDE.md, ANTIGRAVITY.md, GEMINI.md | yes | — |
-| relay-bootstrap.md, relay-brain.template.yml, relay-brain-ref.template.yml | yes | — |
-| relay-brain-ref.md | yes | — |
-| PROJECTS/_template/, SKILLS/_template/ | yes | — |
-| TOOLS/README.md, TOOLS/relay-*.*, TOOLS/init-relay-project.mjs | yes | — |
-| .claude/hooks/relay-*.js | yes | — |
-| .gitignore, SETUP.md, README.md | yes | — |
-| relay-brain.yml (active, with project data) | no | yes |
-| RELAY_LOG.md (full working history) | no | yes |
-| RELAY_CHAT.md (live agent chat) | no | yes |
-| PROJECTS/{project}/ (project data) | no | yes |
-| SKILLS/{project}/SKILL.md | no | yes |
+|---------|:---:|:----------:|
+| AGENTS.md, CLAUDE.md, ANTIGRAVITY.md, GEMINI.md | ✅ | |
+| relay-bootstrap.md, relay-brain.template.yml, relay-brain-ref.md | ✅ | |
+| PROJECTS/_template/, SKILLS/_template/ | ✅ | |
+| TOOLS/relay-*.*, TOOLS/init-relay-project.mjs | ✅ | |
+| .claude/hooks/relay-*.js | ✅ | |
+| relay-brain.yml (active state) | | ✅ |
+| RELAY_LOG.md (full history) | | ✅ |
+| PROJECTS/{project}/ (project data) | | ✅ |
+| SKILLS/{project}/SKILL.md | | ✅ |
 
-The Git repository contains no personal data and can be shared publicly or cloned cleanly. The cloud-synced layer carries the living state: active projects, accumulated skills, utility scripts, and the full activity log.
+The Git repository contains **no personal data** and can be cloned cleanly on any machine.
 
 ---
 
 ## The Framework Grows With You
 
-Relay is not configured once and forgotten. It is designed to accumulate value organically as you work.
+Relay is designed to accumulate value organically as you work.
 
-Skills are added whenever a recurring workflow is formalized: the first time you run a sequence of commands, it is ad hoc; the third time, it becomes a skill entry. Tools follow a promotion protocol — a script earns its place in `TOOLS/` only after proving useful across at least two distinct projects. The activity log grows with every session, giving agents that arrive cold an immediate picture of recent cross-project activity. The brain file gains projects one by one, improving each agent's ability to assess context and avoid redundant work.
-
-New CLI agents slot in without breaking anything. Adding Codex CLI or a future agent means creating one new file (`{AGENT}.md`) at the relay root, one entry in `relay-brain.yml`, and optionally one slash command definition. The universal entry protocol in `AGENTS.md` handles the rest — the new agent inherits the full coordination framework on its first run.
+- **Skills** are added whenever a recurring workflow is formalized — ad hoc the first time, a skill entry by the third.
+- **Tools** follow a promotion protocol — a script earns its place in `TOOLS/` only after proving useful across at least two distinct projects.
+- **New agents** slot in without breaking anything — one new `{AGENT}.md` file and one entry in `relay-brain.yml`.
 
 The framework grows heavier in the cloud and stays lean in Git.
 
@@ -175,30 +184,47 @@ The framework grows heavier in the cloud and stays lean in Git.
 node TOOLS/init-relay-project.mjs my-project
 ```
 
-This creates `PROJECTS/my-project/` from the template and registers the project in `relay-brain.yml`. Fill in `PROJECTS/my-project/AGENTS.md` to define the role split, file structure, and local conventions. Add a skill file at `SKILLS/my-project/SKILL.md` if the project has recurring command modes.
-
-Manual alternative: copy `PROJECTS/_template/` to `PROJECTS/{name}/`, adapt the files, and add the project entry to `relay-brain.yml` by hand.
+Creates `PROJECTS/my-project/` from the template and registers it in `relay-brain.yml`. Then fill in `PROJECTS/my-project/AGENTS.md` to define the role split and local conventions.
 
 ---
 
 ## Adding a New CLI Agent
 
-1. Create `{AGENT}.md` at the relay root — begin with `@./AGENTS.md`, then declare agent-specific capabilities and constraints.
+1. Create `{AGENT}.md` at the relay root — start with `@./AGENTS.md`, then declare capabilities and constraints.
 2. Add an entry under `agents:` in `relay-brain.yml`.
-3. If the agent supports custom slash commands, create `.{agent}/commands/framework-init.{ext}` using the same wizard logic as the existing Claude and Antigravity versions.
+3. Optionally create `.{agent}/commands/framework-init.{ext}` for a slash command wizard.
 4. Log the addition in `RELAY_LOG.md`.
 
-The framework makes no assumptions about which agent is present. Any agent that reads `AGENTS.md` and follows the entry protocol is a first-class participant.
+Any agent that reads `AGENTS.md` and follows the entry protocol is a first-class participant.
 
 ---
 
 ## Example Configuration
 
-A typical Relay setup looks like this:
+| Role | Agent | Responsibilities |
+|------|-------|-----------------|
+| Orchestrator | Claude Code | Evaluation, PDF generation, merges, long reasoning |
+| Worker | Antigravity CLI (`agy`) | Scraping, batch processing, liveness checks |
 
-- **Orchestrator** : Claude Code — handles evaluation, PDF generation, merges, long reasoning
-- **Worker** : Antigravity CLI (`agy`) — handles scraping, batch processing, liveness checks
-- **Hooks** : `relay-session-hook.js` (boot context), `relay-stop-hook.js` (log verification)
-- **Broker** : `relay-server.py` on port 7432 — real-time task delegation via `relay-chat.mjs`
-- **Sync** : personal data (`relay-brain.yml`, `RELAY_LOG.md`, `PROJECTS/`) synced via cloud service
-- **RTK** : token proxy reducing CLI output by 60-90%, configured via PreToolUse hook
+```
+Hooks    : relay-session-hook.js (boot context) + relay-stop-hook.js (log enforcement)
+Broker   : relay-server.py on port 7432 — real-time delegation via relay-chat.mjs
+Sync     : relay-brain.yml + RELAY_LOG.md + PROJECTS/ synced via cloud service
+Tokens   : RTK proxy — 60-90% reduction on CLI output via PreToolUse hook
+```
+
+---
+
+## Contributing
+
+Contributions are welcome. Open an issue to discuss changes before submitting a pull request.
+
+- Keep commits focused and descriptive
+- No hardcoded paths — everything must resolve relative to `RELAY_ROOT`
+- No personal data in committed files
+
+---
+
+## License
+
+[MIT](LICENSE) — © 2026 sonical0
