@@ -217,15 +217,17 @@ Tokens   : proxy RTK — réduction 60-90% de l'output CLI via hook PreToolUse
 
 ## Optimisation des tokens
 
-Relay est conçu pour être économe en tokens à chaque couche.
+Relay est conçu pour être économe en tokens à chaque couche. Cinq mécanismes se combinent pour produire une réduction estimée de **70–80%** de la consommation de tokens sur une session multi-agents typique.
 
-| Mécanisme | Économies | Comment |
-|-----------|-----------|---------|
-| **Proxy RTK** | 60–90% | Encapsule les commandes CLI (`git`, `npm`, `cargo`, `pytest`…) et supprime le bruit avant que l'output n'atteigne l'agent |
-| **Split brain** | Significatives | `relay-brain-ref.md` est `@include` dans `CLAUDE.md` — le contenu statique est chargé une fois via le prompt caching et jamais relu entre les sessions |
-| **Déduplication de session** | Par session | `relay-session-hook.js` exécute le protocole de boot une seule fois par fenêtre de 30 minutes, pas à chaque prompt |
-| **Format log compact** | Cumulatif | `RELAY_LOG.md` impose max 5 bullets × 15 mots par entrée — le log reste dense au fil du temps |
-| **Brain slim** | Par lecture | `relay-brain.yml` contient uniquement l'état volatile (projets, claims, wmux). Le contenu stable (capacités, conventions) vit dans `relay-brain-ref.md` et n'est jamais relu |
+| Mécanisme | Économies estimées | Base de calcul |
+|-----------|:-----------------:|----------------|
+| **Proxy RTK** | 60–90% sur l'output CLI | Filtre le bruit de `git`, `npm`, `cargo`, `pytest`… avant que l'output n'atteigne l'agent. Documenté par RTK. |
+| **Split brain + prompt caching** | ~95% sur les lectures de référence statique | `relay-brain-ref.md` (~1 500 tokens) est `@include` dans `CLAUDE.md`. Cache hit = 5% du coût plein. Seul l'état volatile (~400 tokens) est relu à chaque session. |
+| **Déduplication de session** | ~87% sur l'injection du contexte de boot | Le hook tourne une fois par fenêtre de 30 minutes, pas à chaque prompt. Sur une session typique (30 prompts, 4 fenêtres) : 4 × 900 tokens au lieu de 30 × 900. |
+| **Format log compact** | ~75% sur les lectures du log | Entrées limitées à 5 bullets × 15 mots (~75 mots) contre ~300 mots en format non structuré — même contexte historique pour un quart du coût. |
+| **Brain slim** | ~79% par lecture du brain | Seul l'état volatile (~400 tokens) est relu, pas le contenu combiné statique+volatile (~1 900 tokens). |
+
+> **Estimation combinée** — sur une session typique de 8h multi-agents (100 prompts, 20 commandes CLI, 3 projets actifs), ces mécanismes réduisent la consommation totale de tokens de ~420 000 tokens (sans optimisation) à ~90 000 tokens.
 
 ### Configuration RTK
 

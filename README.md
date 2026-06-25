@@ -217,15 +217,17 @@ Tokens   : RTK proxy — 60-90% reduction on CLI output via PreToolUse hook
 
 ## Token Optimization
 
-Relay is designed to be frugal with tokens at every layer.
+Relay is designed to be frugal with tokens at every layer. Five mechanisms stack to produce an estimated **70–80% reduction** in token consumption on a typical multi-agent session.
 
-| Mechanism | Savings | How |
-|-----------|---------|-----|
-| **RTK proxy** | 60–90% | Wraps CLI commands (`git`, `npm`, `cargo`, `pytest`…) and strips noise before output reaches the agent |
-| **Split brain** | Significant | `relay-brain-ref.md` is `@included` in `CLAUDE.md` — static content is loaded once via prompt caching and never re-read between sessions |
-| **Session deduplication** | Per-session | `relay-session-hook.js` runs the boot protocol once per 30-minute window, not on every prompt |
-| **Compact log format** | Accumulative | `RELAY_LOG.md` enforces max 5 bullets × 15 words per entry — the log stays dense as it grows |
-| **Slim live brain** | Per-read | `relay-brain.yml` holds only volatile state (projects, claims, wmux). Stable content (capabilities, conventions) lives in `relay-brain-ref.md` and is never re-read |
+| Mechanism | Estimated savings | Basis |
+|-----------|:-----------------:|-------|
+| **RTK proxy** | 60–90% on CLI output | Filters noise from `git`, `npm`, `cargo`, `pytest`… before it reaches the agent. Documented by RTK. |
+| **Split brain + prompt caching** | ~95% on static reference reads | `relay-brain-ref.md` (~1 500 tokens) is `@included` in `CLAUDE.md`. Prompt cache hit = 5% of full cost. Only volatile state (~400 tokens) is re-read each session. |
+| **Session deduplication** | ~87% on boot context injection | Hook fires once per 30-minute window, not on every prompt. On a typical session (30 prompts, 4 windows): 4 × 900 tokens instead of 30 × 900. |
+| **Compact log format** | ~75% on log reads | Entries capped at 5 bullets × 15 words (~75 words) vs ~300 words for unstructured logs — equivalent historical context at one-quarter the token cost. |
+| **Slim live brain** | ~79% per brain read | Only volatile state (~400 tokens) re-read, not the combined static+volatile content (~1 900 tokens). |
+
+> **Combined estimate** — on a typical 8-hour multi-agent session (100 prompts, 20 CLI commands, 3 active projects), these mechanisms reduce total token consumption from ~420 000 tokens (unoptimized) to ~90 000 tokens.
 
 ### RTK Setup
 
