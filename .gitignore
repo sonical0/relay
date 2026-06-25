@@ -1,0 +1,42 @@
+# Relay — données personnelles et état live (cloud-synced, non committés)
+
+# Brain actif (avec données perso : machines, projets, claims)
+relay-brain.yml
+relay-brain-ref.yml
+
+# Logs et chat (historique complet + messages live)
+# Ancré à la racine (/) pour ne pas exclure PROJECTS/_template/RELAY_LOG.md
+/RELAY_LOG.md
+/RELAY_CHAT.md
+relay-brain-history.yml
+
+# Projets réels (données personnelles, non publiques)
+PROJECTS/*/
+!PROJECTS/_template/
+
+# Skills réels (routing tables personnalisées)
+SKILLS/*/
+!SKILLS/_template/
+
+# Base de données du broker
+TOOLS/*.db
+
+# Outils TOOLS/ personnels (cloud-only — ex: html-to-pdf-generator.mjs, fix-mojibake.mjs)
+# Les outils Relay committés (relay-*.*, init-relay-project.mjs) sont explicitement exclus ci-dessous.
+TOOLS/*.mjs
+!TOOLS/relay-*.mjs
+!TOOLS/init-relay-project.mjs
+
+TOOLS/*.py
+!TOOLS/relay-*.py
+
+TOOLS/*.sh
+!TOOLS/relay-*.sh
+
+# Fichiers locaux
+*.local
+.env
+
+# OS
+.DS_Store
+Thumbs.db

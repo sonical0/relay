@@ -1,0 +1,35 @@
+# /framework-init — Relay initialization wizard for Gemini CLI / antigravity-cli (agy)
+
+[command]
+name = "framework-init"
+description = "Initialize Relay on a new machine: copy brain template, check environment, install hooks."
+
+[instructions]
+text = """
+Run the Relay initialization wizard. Follow these steps in order:
+
+1. Detect environment:
+   - Run: node --version, python3 --version, git --version
+   - Detect OS from uname -s or $env:OS
+
+2. Copy brain template if relay-brain.yml is absent:
+   - bash/zsh: cp relay-brain.template.yml relay-brain.yml
+   - PowerShell: Copy-Item relay-brain.template.yml relay-brain.yml
+   - Update env fields in relay-brain.yml for the current OS
+
+3. Install Claude Code hooks (run from the relay root directory):
+   - node .claude/hooks/relay-setup-hook.js
+   - Note: this modifies ~/.claude/settings.json
+
+4. Check wmux availability: wmux ping
+   - Update relay-brain.yml -> wmux_status accordingly
+
+5. Check RTK: rtk --version
+   - Suggest installation if absent
+
+6. Check antigravity-cli: agy --version (or gemini --version for legacy)
+   - Update relay-brain.yml -> agents.antigravity.installed
+
+7. Print a summary of what is configured and what is missing.
+   Suggest next step: node TOOLS/init-relay-project.mjs <project-name>
+"""

@@ -1,0 +1,84 @@
+# Relay Agent Brain — Template portable (état live)
+# INSTRUCTIONS : copier ce fichier en relay-brain.yml avant utilisation.
+#   cp relay-brain.template.yml relay-brain.yml   (macOS/Linux)
+#   Copy-Item relay-brain.template.yml relay-brain.yml   (PowerShell)
+# Ou lancer /framework-init — le wizard copie et configure automatiquement.
+#
+# Ce fichier contient l'état VOLATILE (projets, claims, wmux, cross_project_log).
+# Les sections STABLES (capacités, conventions) → relay-brain-ref.yml / relay-brain-ref.md
+#
+# RÈGLE : Lire avant de commencer, écrire atomiquement (lire → modifier → sauvegarder).
+# CHEMIN : Tous les chemins sont relatifs depuis RELAY_ROOT (dossier contenant ce fichier).
+
+version: 2
+last_updated: "{{DATE}}"
+last_agent: "{{AGENT}}"
+wmux_status: unknown  # Lancer /framework-init pour configurer automatiquement
+
+architecture:
+  hub: "./relay-brain.yml"
+  ref: "./relay-brain-ref.yml"
+  spoke_pattern: "./PROJECTS/{PROJECT}/"
+  skills_dir: "./SKILLS/"
+  tools_dir: "./TOOLS/"
+  note: >
+    Tous les chemins sont relatifs depuis RELAY_ROOT (le dossier contenant ce fichier).
+    Scripts Node.js : path.dirname(fileURLToPath(import.meta.url)) + navigation relative.
+    Variable d'env $RELAY_ROOT optionnelle — prend la priorité si définie.
+
+agents:
+  claude:
+    env: windows-powershell    # Adapter : windows-powershell | macos-zsh | linux-bash
+    cli: claude-code
+    sandbox: null
+    installed: true
+    notes: "Orchestrateur. Voir relay-brain-ref.yml pour les capacités complètes."
+
+  antigravity:
+    env: windows-powershell    # Adapter selon le poste
+    cli: antigravity-cli
+    alias: agy
+    compat: gemini-cli
+    sandbox: "./"
+    installed: false           # Mettre à true après installation
+    notes: "Worker. Sandboxé dans RELAY_ROOT. Voir relay-brain-ref.yml pour les capacités."
+
+conventions:
+  log_format: "## YYYY-MM-DD — Agent (projet : sujet) + max 5 bullets, 15 mots, pas sous-listes"
+  log_granularity: batch-summary
+  encoding_rule: "UTF-8 sans BOM. Jamais PowerShell pour texte accentué → Node.js"
+  liveness_owner: antigravity
+  pdf_owner: claude
+  merge_owner: claude
+  evaluation_owner: claude
+  scan_owner: antigravity
+  cross_project_log_max_days: 30
+  cross_project_log_archive: "./relay-brain-history.yml"
+  bootstrap_generic: "./relay-bootstrap.md"
+  bootstrap_local: ".relay-bootstrap.md"
+  relay_log: "./RELAY_LOG.md"
+  relay_chat: "./RELAY_CHAT.md"
+  tools_manifest: "./TOOLS/README.md"
+  hooks:
+    session: ".claude/hooks/relay-session-hook.js"
+    setup: ".claude/hooks/relay-setup-hook.js"
+    stop: ".claude/hooks/relay-stop-hook.js"
+    install_cmd: "node .claude/hooks/relay-setup-hook.js"
+  needs_bootstrap_sync: []   # Projets dont le .relay-bootstrap.md local est périmé
+  state_protocol: >
+    Lire relay-brain.yml → RELAY_LOG.md (50 dernières lignes) → .relay-bootstrap.md projet → commencer.
+    Écrire atomiquement : lire → modifier → sauvegarder en une seule opération.
+
+cross_project_log: []
+  # Format : {date: "YYYY-MM-DD", agent: claude|agy, project: nom, action: "description"}
+  # Garder 30 derniers jours. Archiver dans relay-brain-history.yml au-delà.
+
+projects: {}
+  # Ajouter ici les projets lors de leur création (via init-relay-project.mjs ou manuellement).
+  # Exemple :
+  #   mon-projet:
+  #     path: "PROJECTS/mon-projet"
+  #     bootstrap: "PROJECTS/mon-projet/.relay-bootstrap.md"
+  #     relay_log: "RELAY_LOG.md"
+  #     claims: []
+  #     known_issues: []
