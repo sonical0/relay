@@ -215,6 +215,35 @@ Tokens   : proxy RTK — réduction 60-90% de l'output CLI via hook PreToolUse
 
 ---
 
+## Optimisation des tokens
+
+Relay est conçu pour être économe en tokens à chaque couche.
+
+| Mécanisme | Économies | Comment |
+|-----------|-----------|---------|
+| **Proxy RTK** | 60–90% | Encapsule les commandes CLI (`git`, `npm`, `cargo`, `pytest`…) et supprime le bruit avant que l'output n'atteigne l'agent |
+| **Split brain** | Significatives | `relay-brain-ref.md` est `@include` dans `CLAUDE.md` — le contenu statique est chargé une fois via le prompt caching et jamais relu entre les sessions |
+| **Déduplication de session** | Par session | `relay-session-hook.js` exécute le protocole de boot une seule fois par fenêtre de 30 minutes, pas à chaque prompt |
+| **Format log compact** | Cumulatif | `RELAY_LOG.md` impose max 5 bullets × 15 mots par entrée — le log reste dense au fil du temps |
+| **Brain slim** | Par lecture | `relay-brain.yml` contient uniquement l'état volatile (projets, claims, wmux). Le contenu stable (capacités, conventions) vit dans `relay-brain-ref.md` et n'est jamais relu |
+
+### Configuration RTK
+
+[RTK (Rust Token Killer)](https://github.com/reachingforthejack/rtk) est un proxy CLI optionnel mais recommandé :
+
+```bash
+# Installer
+cargo install rtk   # ou voir la doc RTK pour l'installation par binaire
+
+# Vérifier
+rtk --version
+rtk gain            # voir les économies de tokens
+```
+
+Une fois installé, RTK est configuré comme hook `PreToolUse` dans `~/.claude/settings.json`. Le wizard `/framework-init` gère cette étape automatiquement.
+
+---
+
 ## Contribuer
 
 Les contributions sont les bienvenues. Ouvrir une issue pour discuter des changements avant de soumettre une pull request.
