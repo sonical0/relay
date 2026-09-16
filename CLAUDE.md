@@ -1,19 +1,32 @@
 @./AGENTS.md
 
-## Capacités Claude
+## Claude Code — capabilities
 
-- Accès filesystem complet (aucun sandbox)
-- wmux-orchestrator : `/wmux:orchestrate` disponible (Claude uniquement)
-- wmux-browser : `wmux browser open <url>` pour navigation visible en temps réel
-- PDF : `node TOOLS/html-to-pdf-generator.mjs <in.html> <out.pdf>`
-- Sous-agents : Explore, Plan, general-purpose
+- Full filesystem access (no sandbox) → **orchestrator role**
+- Subagents: Explore, Plan, general-purpose
+- Skills: discovered in `.claude/skills/` only — see the Skills section in `AGENTS.md`
+- Node scripts, file writing, web
 
-## Limites Claude
+## Claude Code — limits
 
-- Pas de playwright-live (browser interactif direct) → utiliser wmux-browser à la place
+- No headless browser of its own. If a sandboxed worker agent has Playwright,
+  delegate liveness checks and SPA scraping to it rather than improvising.
 
-## Note wmux
+## Hooks
 
-La configuration wmux (hook PostToolUse dans `~/.claude/settings.json`) est **locale à chaque poste**.
-Sur un nouveau poste : lancer `/framework-init` ou installer wmux manuellement, puis vérifier `wmux ping`.
-Mettre à jour `wmux_status` dans `./tandem-brain.yml` après installation.
+Relay installs two hooks in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`):
+
+| Hook | Script | Role |
+|---|---|---|
+| `UserPromptSubmit` | `relay-session-hook.js` | injects the pre-digested state, once per session |
+| `SessionStart` | `relay-setup-hook.js` | re-checks the hooks are present, re-adds them if not |
+
+Install once per machine: `node relay-setup-hook.js`. Hook configuration is
+**local to the machine** and never committed.
+
+## Browser panel (optional)
+
+If a terminal multiplexer with a visible browser panel (e.g. wmux) is installed,
+prefer it over headless browsing so the user sees what you are doing. Probe it
+once per session rather than assuming; record the result in
+`relay-brain.yml → machines[<hostname>].browser_panel`.

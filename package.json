@@ -1,0 +1,21 @@
+{
+  "name": "relay-framework",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Portable coordination framework for multi-agent AI CLI workflows",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "bootstrap": "npm install && node TOOLS/skills-link.mjs && node TOOLS/project-scan.mjs && node TOOLS/relay-state.mjs && node TOOLS/rag-index.mjs",
+    "state": "node TOOLS/project-scan.mjs && node TOOLS/relay-state.mjs",
+    "index": "node TOOLS/rag-index.mjs",
+    "rag": "node TOOLS/rag-query.mjs",
+    "hooks": "node relay-setup-hook.js",
+    "rotate": "node TOOLS/log-rotate.mjs"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

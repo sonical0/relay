@@ -1,34 +1,48 @@
-# PROJECTS — Projets Relay
+# PROJECTS — one directory per project
 
-Un sous-dossier par projet. Chaque projet est un "spoke" du hub Relay.
+Each project is a spoke of the Relay hub.
 
-## Créer un nouveau projet
+## Creating a project
 
-### Via le script (recommandé)
 ```bash
-node TOOLS/init-tandem-project.mjs mon-projet
-```
-Crée automatiquement `PROJECTS/mon-projet/` depuis `_template/` et met à jour `tandem-brain.yml`.
-
-### Manuellement
-1. Copier `PROJECTS/_template/` → `PROJECTS/{nom}/`
-2. Remplir `PROJECTS/{nom}/AGENTS.md`
-3. Adapter `PROJECTS/{nom}/.tandem-bootstrap.md`
-4. Ajouter dans `tandem-brain.yml → projects:`
-5. Logger dans `TANDEM_LOG.md`
-
-## Structure minimale d'un projet
-
-```
-PROJECTS/{nom}/
-├── AGENTS.md              ← Règles métier, rôles, structure
-├── CLAUDE.md              ← @../../CLAUDE.md + @./AGENTS.md
-├── GEMINI.md              ← @../../GEMINI.md + @./AGENTS.md
-├── .tandem-bootstrap.md   ← Overrides locaux (pointe vers ../../tandem-bootstrap.md)
-└── TANDEM_LOG.md          ← Stub (écrire dans ../../TANDEM_LOG.md)
+node TOOLS/new-project.mjs my-project --summary "What it is for"
+npm run state
 ```
 
-## Données personnelles
+This copies `_template/`, registers the project in `relay-brain.yml`, and refreshes
+the derived status so the next session already knows about it.
 
-Le contenu des projets (données, outputs, trackers, rapports...) est **cloud-only** — non committé en git.
-Seul `_template/` est en git.
+## Minimum structure
+
+```
+PROJECTS/<name>/
+├── AGENTS.md    ← local rules: role split, structure, data contract
+├── CLAUDE.md    ← @../../CLAUDE.md + @./AGENTS.md
+└── GEMINI.md    ← @../../GEMINI.md + @./AGENTS.md
+```
+
+There is no per-project bootstrap file and no per-project log stub any more. Both
+existed to repeat what the framework already says; a rule has one owner. Local rules
+go in `AGENTS.md`, activity goes in the global `RELAY_LOG.md`.
+
+## Work from the project directory
+
+Open your agent inside `PROJECTS/<name>/`, not at the Relay root. The startup hook
+then injects that project's state — its status, its recent log entries, its local
+rules — instead of the general view.
+
+Measured on the internal system this framework comes from, same question asked twice:
+from the root, 3 turns and 96,665 tokens; from the project directory, 1 turn and
+25,728 tokens.
+
+## Status is derived, intent is declared
+
+You never write a `status:` field. `TOOLS/project-scan.mjs` derives active / idle /
+dormant from the last git commit or file mtime. In `relay-brain.yml` you only declare
+`intent:` when a project reaches a terminal state — `delivered`, `abandoned`,
+`archived`, `done`. If you declare a project done and it keeps moving, the scan flags
+the conflict instead of hiding it.
+
+## Personal data
+
+Project contents are cloud-only and gitignored. Only `_template/` ships in Git.

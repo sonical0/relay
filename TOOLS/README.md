@@ -1,41 +1,53 @@
-# TOOLS — Outils partagés Relay
+# TOOLS — shared scripts
 
-Scripts transverses, standalone, utilisables par tous les agents sur tout projet.
+Standalone Node scripts, usable by any agent on any project. Unlike project data,
+these **are** committed: they contain no personal information, and the framework does
+not work without them — the startup state, the derived status and the search index
+are all produced here.
 
-Les scripts `.mjs` sont dans le cloud (non committés en git). Ce README est le contrat d'interface public.
+## Catalogue
 
-## Convention d'interface
+| Script | What it does | Writes |
+|---|---|---|
+| `project-scan.mjs` | Derives real project status from disk (git commits, mtimes) | `relay-projects.derived.yml` |
+| `relay-state.mjs` | Builds the pre-digested state injected at startup | `.relay-state.md`, `.relay-state/` |
+| `rag-index.mjs` | Indexes markdown and YAML into a searchable BM25 index | `.relay-rag.json` |
+| `rag-query.mjs` | Queries that index — **use before opening a file** | — |
+| `skills-link.mjs` | Links `load: native` skills into `.claude/skills/` | `.claude/skills/` |
+| `skills-all-native.mjs` | Rollback: puts every skill back to native | `SKILLS/skills.manifest.json` |
+| `log-rotate.mjs` | Archives log entries older than 2 months | `LOG/ARCHIVE/YYYY-MM.md` |
+| `new-project.mjs` | Creates a project from the template and registers it | `PROJECTS/<name>/`, `relay-brain.yml` |
+| `lib/atomic.mjs` | Atomic writes that survive Windows file locks | — |
+| `lib/rag.mjs` | Tokenizer and BM25 scorer | — |
 
-- Erreurs → **stderr** / succès → **stdout**
-- Exit code : **0** = succès, **1** = erreur
-- Flag `--json` optionnel pour output machine-readable : `{"status":"ok","result":{...}}`
-- Pas de chemins hardcodés — arguments CLI ou résolution relative via `import.meta.url`
+Everyday use is through npm scripts: `npm run state`, `npm run index`,
+`npm run rag -- --query "…"`, `npm run bootstrap`.
 
-## Critères de promotion dans TOOLS/
+## Interface contract
 
-Un script mérite d'être dans TOOLS/ si :
-1. Utilité généraliste (pas spécifique à un seul projet)
-2. Standalone (dépendances au contexte du projet éliminables via args CLI)
-3. Interface standardisée (args CLI, exit code, no hardcoded paths)
-4. Besoin avéré sur au moins 2 projets (éviter la sur-abstraction prématurée)
+- Errors → **stderr**, results → **stdout**
+- Exit code **0** on success, **1** on failure
+- `--json` where machine-readable output makes sense
+- `--dry-run` on anything that writes
+- No hardcoded paths: `path.dirname(fileURLToPath(import.meta.url))` plus relative
+  navigation, so the framework runs from wherever it is cloned
 
-## Outils disponibles
+## Writing rules
 
-| Outil | Fichier | Usage | Args |
-|-------|---------|-------|------|
-| HTML → PDF | `html-to-pdf-generator.mjs` | `node TOOLS/html-to-pdf-generator.mjs <in.html> <out.pdf>` | `--format=a4\|letter` |
-| Fix Mojibake | `fix-mojibake.mjs` | `node TOOLS/fix-mojibake.mjs --dir=<path>` | `--dir=<path>` (requis) |
-| Init Projet | `init-tandem-project.mjs` | `node TOOLS/init-tandem-project.mjs <nom-projet>` | nom-projet |
+- **Write atomically** through `lib/atomic.mjs`. Plain `writeFileSync` on a file a
+  hook may read concurrently is a bug: cloud sync clients and antivirus hold files
+  open, and a rename into a locked destination fails roughly 1 run in 6 on Windows.
+- **Validate before the swap.** `writeAtomic(path, text, validate)` re-reads the temp
+  file; if the validator throws, the original is never replaced.
+- **Never write to `relay-brain.yml` automatically.** It carries human intent.
+  `new-project.mjs` is the one exception, it is invoked explicitly, and it edits the
+  file line by line so your comments survive.
 
-## Résolution de chemin dans les scripts
+## Adding a tool
 
-Tous les scripts utilisent `path.dirname(fileURLToPath(import.meta.url))` + navigation relative pour trouver TANDEM_ROOT dynamiquement. Aucun chemin absolu hardcodé.
+A script earns its place here when it is generally useful (not tied to one project),
+standalone, follows the interface above, and has proven necessary on at least two
+projects. Add a row to the catalogue in the same commit.
 
-Exemple :
-```js
-import { fileURLToPath } from 'url'
-import path from 'path'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const TANDEM_ROOT = path.join(__dirname, '..')  // TOOLS/../ = relay/
-```
+Dependencies are deliberately minimal — `js-yaml` only. The RAG is plain JavaScript
+rather than SQLite FTS5 precisely to avoid a native build on every machine.

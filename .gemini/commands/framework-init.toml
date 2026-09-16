@@ -1,76 +1,59 @@
 name = "framework-init"
-description = "Lance le wizard d'initialisation du Relay pour un nouveau poste"
+description = "Set Relay up on this machine: brain, hooks, skills, status, index."
 
 prompt = """
-Lance le wizard d'initialisation du Relay pour un nouveau poste.
+Run the Relay initialization for a new machine. Work through the steps in order and
+report what you did at the end. Do not skip a step silently — if one fails, say so and
+continue with the rest.
 
-## Étapes du wizard
+## 1. Detect the environment
 
-### Étape 1 — Détecter l'OS
+- OS and shell (uname -s, or PowerShell presence on Windows)
+- Hostname — $env:COMPUTERNAME on Windows, hostname elsewhere. This is the key used
+  under `machines:` in the brain.
+- node --version — Relay needs Node 20+. Stop here if it is older.
 
-Détecter l'OS en cours :
-- Windows : PowerShell disponible ou $env:OS contient "Windows"
-- macOS : uname -s retourne Darwin
-- Linux : uname -s retourne Linux
+## 2. The brain
 
-Confirmer à l'utilisateur : "OS détecté : [Windows/macOS/Linux]"
+If ./relay-brain.yml is missing, copy relay-brain.template.yml to it.
 
----
+Then edit it — it is a manual file, so make the edits explicit and show them:
 
-### Étape 2 — Configurer tandem-brain.yml
+- add an entry under `machines:` keyed by this hostname, with relay_root set to the
+  absolute path of this directory, plus os and shell
+- under `agents:`, keep only the CLIs actually installed
+- leave `projects:` alone; projects are added with node TOOLS/new-project.mjs
 
-Vérifier si ./tandem-brain.yml existe.
+Never invent an `intent:` value. It is the user's to declare.
 
-Si absent : copier ./tandem-brain.template.yml → ./tandem-brain.yml
+## 3. Bootstrap
 
-Configurer dans tandem-brain.yml :
-- agents.claude.env et agents.gemini.env selon l'OS détecté
-- last_updated : date du jour (YYYY-MM-DD)
-- last_agent : gemini
+    npm run bootstrap
 
----
+Installs the one dependency, links native skills, derives project status, builds the
+injected state and the search index. Report the counts it prints.
 
-### Étape 3 — Configurer wmux
+## 4. Hooks
 
-Windows :
-1. Tenter wmux ping
-2. Si succès → mettre wmux_status: operational dans tandem-brain.yml
-3. Si échec → expliquer ce qu'est wmux (panel navigateur visible en temps réel dans le terminal, intégré aux agents CLI). Proposer l'installation. Si accepté : guider. Si refusé : wmux_status: unavailable.
+Hook installation targets Claude Code settings. If Claude Code is present on this
+machine, tell the user to run `node relay-setup-hook.js` from a Claude Code session,
+or run it directly. If it is not installed, skip this step and say so: Relay works
+without hooks, you simply lose the state injected at startup and have to read
+.relay-state.md yourself at the beginning of a session.
 
-macOS :
-wmux non disponible nativement. Proposer de rechercher des alternatives ensemble (Warp, iTerm2 + AppleScript, etc.). wmux_status: unavailable pour l'instant.
+Note your own sandbox: you are restricted to RELAY_ROOT and below, so you cannot write
+to the user's home configuration. Say that plainly instead of failing quietly.
 
-Linux :
-wmux non disponible nativement. Alternatives possibles : tmux + xdotool. Proposer. wmux_status: unavailable si refus.
+## 5. Verify and report
 
----
+    npm run state
+    npm run rag -- --query "atomic write validate before swap"
 
-### Étape 4 — Vérifier l'accessibilité des dossiers
+The RAG query should surface the writing-conventions section of AGENTS.md without opening a file (SETUP.md ranks first, since it quotes the query itself). Then summarise:
+OS and hostname, which agents were found, how many skills are native versus on demand,
+how many projects were detected, and anything that failed.
 
-Vérifier : ./PROJECTS/, ./SKILLS/, ./TOOLS/
-Lister ce qui est disponible depuis le cloud sync. Informer l'utilisateur.
-
----
-
-### Étape 5 — RTK (Rust Token Killer)
-
-Vérifier : rtk --version
-
-Si absent, présenter RTK à l'utilisateur :
-RTK est un proxy CLI transparent qui réduit la consommation de tokens de 60 à 90% sur les opérations courantes (git, npm, etc.). Il fonctionne via un hook PreToolUse automatique. Par exemple, git status devient rtk git status sans que l'utilisateur ait à changer quoi que ce soit. Les économies sont visibles via rtk gain.
-
-Détecter les CLI installés (claude --version, gemini --version).
-Proposer l'installation de RTK + configuration du hook pour chaque CLI détecté.
-Si accepté : guider l'installation. rtk_status: operational dans tandem-brain.yml.
-Si refusé : rtk_status: declined dans tandem-brain.yml.
-Si déjà installé : rtk_status: operational dans tandem-brain.yml.
-
----
-
-### Étape 6 — Résumé et log
-
-Afficher un résumé : OS, wmux status, RTK status, projets/skills/scripts disponibles.
-
-Écrire dans ./TANDEM_LOG.md :
-{date} [gemini] framework — Setup initial terminé. OS: [OS], wmux: [status], RTK: [status]
+Finally, tell the user the one habit that matters: open the agent inside
+PROJECTS/<name>/, not at the Relay root — the injected state is then about that
+project.
 """

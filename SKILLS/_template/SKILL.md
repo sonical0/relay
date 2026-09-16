@@ -1,30 +1,39 @@
-# {PROJECT_NAME} — Skill
+---
+name: skill-name
+description: "What this skill does and when to reach for it. Keep it near 200 bytes: it is paid for on every session. Quotes are required — this text contains colons."
+---
 
-## Routing table
+# {SKILL_NAME}
 
-| Commande / Mode | Déclencheur | Agent | Action |
-|-----------------|------------|-------|--------|
-| (à remplir) | | | |
+> The body is only loaded when the skill is invoked. Put all the method detail here,
+> not in the description above.
 
-## Chargement du contexte par mode
+## When this applies
 
-Fichiers à lire selon le mode actif :
-- **mode X** → lire : `./fichier1.md`, `./config/fichier2.yml`
-- **mode Y** → lire : ...
+<!-- One or two lines. What situation, what signal in the request. -->
+<!-- Also say when it does NOT apply — that is what keeps a skill from misfiring. -->
 
-## Auto-détection
+## Method
 
-Patterns qui déclenchent un mode sans que l'utilisateur le spécifie :
-- Si l'entrée contient une URL → mode ...
-- Si l'entrée est un chemin de fichier → mode ...
+<!-- Numbered steps, in order, specific enough to follow without improvising. -->
 
-## Règles de délégation sous-agents
+1.
+2.
+3.
 
-- Volume > 3 fichiers → déléguer à un sous-agent
-- Recherche spéculative (fichiers inconnus) → sous-agent Explore
-- Même tâche × N → batch en sous-agents parallèles
+## Files to read
 
-## Découverte
+| Step | Read |
+|---|---|
+| | |
 
-Quand l'utilisateur tape une commande ambiguë ou demande de l'aide :
-→ Afficher cette table de routage comme menu de découverte.
+## Delegation
+
+- More than 3 files → subagent
+- Speculative search across files you do not know → search subagent
+- Same task × N → parallel subagents
+
+## Done when
+
+<!-- The check that says the work is finished. Not "it looks right" — a command to -->
+<!-- run, a file to diff, an output to compare. -->
