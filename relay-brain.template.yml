@@ -1,0 +1,76 @@
+# Relay brain — portable template
+#
+# INSTRUCTIONS: copy this file to relay-brain.yml before use.
+#   cp relay-brain.template.yml relay-brain.yml          (macOS/Linux)
+#   Copy-Item relay-brain.template.yml relay-brain.yml   (PowerShell)
+#
+# This file is MANUAL and carries human intent. Nothing writes to it automatically.
+# Measured project status is derived from disk into relay-projects.derived.yml by
+# TOOLS/project-scan.mjs — the two can therefore never contradict each other in
+# silence, the way a hand-typed `status:` field used to.
+#
+# Paths are relative to RELAY_ROOT (the directory holding this file), or use the
+# {{relay_root}} placeholder, resolved through machines[<hostname>].relay_root.
+
+version: 3
+
+# ─── Machines ────────────────────────────────────────────────────────────────
+# One entry per machine, keyed by hostname:
+#   Windows       → $env:COMPUTERNAME
+#   Linux / macOS → hostname
+# If your machine is missing, add it. project-scan uses this to tell "the project
+# is absent" (a problem) from "the project lives on another machine" (expected).
+machines:
+  MY-MACHINE:
+    relay_root: "C:/path/to/relay"
+    os: windows            # windows | macos | linux
+    shell: powershell      # powershell | zsh | bash
+    browser_panel: unknown # unknown | operational | unavailable
+
+# ─── Agents ──────────────────────────────────────────────────────────────────
+# Capabilities and limits also live in each {AGENT}.md. Keep this list short —
+# it is the machine-readable index, not the documentation.
+agents:
+  claude:
+    cli: claude-code
+    role: orchestrator
+    sandbox: null          # null = no path restriction
+    can: [filesystem, node-scripts, subagents, web]
+  gemini:
+    cli: gemini-cli
+    role: worker
+    sandbox: "{{relay_root}}"
+    can: [playwright-headless, node-scripts, python, web-search, image-generation]
+
+# ─── Conventions ─────────────────────────────────────────────────────────────
+# Default owners, used when a project does not state otherwise in its own
+# PROJECTS/<name>/AGENTS.md. The rules themselves live in AGENTS.md.
+conventions:
+  default_owner: claude
+  scraping_owner: gemini
+  log: RELAY_LOG.md
+
+# ─── Projects ────────────────────────────────────────────────────────────────
+# `intent:` is the only status field here, and it is human. Leave it unset for a
+# project in normal progress — project-scan derives active/idle/dormant from the
+# last git commit or file mtime. Set it only to declare a terminal state:
+#   delivered | abandoned | archived | done
+# If you declare a project done and it keeps moving, the scan flags the conflict
+# instead of hiding it.
+#
+# `machines:` (optional) restricts a project to specific hosts; elsewhere its
+# absence is expected rather than reported as a problem.
+# Left empty on purpose: a declared project whose directory does not exist is
+# reported as `absent`, which must stay a problem signal rather than template noise.
+# `node TOOLS/new-project.mjs <name>` fills this in for you. By hand it looks like:
+#
+#   my-project:
+#     path: "{{relay_root}}/PROJECTS/my-project"
+#     summary: "One line: what this project is for."
+#     intent: delivered        # optional, terminal states only
+#     machines: [MY-MACHINE]   # optional, restricts it to certain hosts
+projects:
+
+# ─── Cross-project notes ─────────────────────────────────────────────────────
+# Short, dated, last 30 days. Anything older belongs in RELAY_LOG.md.
+cross_project_log: []

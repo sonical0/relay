@@ -1,6 +1,7 @@
 # Relay
 
-Un framework de coordination portable pour les workflows multi-agents IA en ligne de commande.
+Un framework de coordination portable pour agents CLI multiples, construit autour
+d'une seule contrainte : **le contexte est le budget**.
 
 [Read in English](README.md)
 
@@ -8,176 +9,208 @@ Un framework de coordination portable pour les workflows multi-agents IA en lign
 
 ## Vue d'ensemble
 
-Les agents IA en ligne de commande — Claude Code, Gemini CLI et leurs semblables — sont individuellement capables de traiter des tâches complexes en plusieurs étapes. Le problème apparaît lorsqu'on en fait travailler plusieurs sur un même projet : aucune mémoire partagée, aucune conscience de ce que fait l'autre, aucun mécanisme pour diviser le travail proprement. Le contexte se perd entre les sessions. Le travail est dupliqué. Un agent défait ce que l'autre vient de faire.
+Les agents CLI — Claude Code, Gemini CLI et leurs pairs — traitent chacun très bien
+des tâches complexes en plusieurs étapes. Le problème apparaît quand plusieurs d'entre
+eux travaillent sur les mêmes projets pendant des mois : aucune mémoire partagée,
+aucune idée de ce que l'autre a fait, aucun moyen économique d'arriver à froid et de
+savoir où en sont les choses.
 
-Relay est une couche de coordination en étoile (hub-and-spoke) qui s'intercale entre vos agents et vos projets. À chaque démarrage, chaque agent lit le même point d'entrée, consulte le même fichier d'état partagé, ajoute une entrée dans le même journal d'activité, et suit le même protocole pour revendiquer une tâche avant de la commencer. Le résultat est un espace de travail multi-agents cohérent où Claude Code fait ce qu'il fait de mieux, Gemini CLI fait ce qu'il fait de mieux, et aucun n'empiète sur le travail de l'autre.
+La correction évidente consiste à faire lire l'état partagé à chaque démarrage. C'est
+ce que faisait la première version de Relay, et c'est la mauvaise correction : un
+protocole d'entrée obligatoire « lis le brain, lis le log » coûtait 12 000 à 15 000
+tokens par session avant le moindre travail, et grossissait à chaque fois que le
+framework grossissait.
 
-Le framework est conçu autour d'une contrainte unique : il doit fonctionner partout. Aucun chemin absolu, aucune configuration spécifique à une machine committée dans le dépôt. Le squelette vit dans Git ; les données personnelles des projets vivent dans la synchronisation cloud. Un nouveau poste est opérationnel en trois commandes.
+Relay fait désormais l'inverse. Un hook injecte un **état pré-digéré plafonné à
+1,4 Ko, une seule fois par session**, choisi selon le dossier où l'on se trouve. Tout
+le reste est à la demande, via un index de recherche local plutôt qu'en ouvrant des
+fichiers. Le statut des projets est dérivé du disque au lieu d'être tenu à la main :
+il ne peut donc pas se périmer en silence. Ce que l'agent lit, c'est la réponse, pas
+le corpus.
 
 ---
 
 ## Fonctionnement
 
-Relay utilise une architecture en étoile. Le hub est le répertoire racine de Relay lui-même — un ensemble de fichiers partagés que tous les agents lisent avant de faire quoi que ce soit. Chaque projet est un spoke : un sous-répertoire dans `PROJECTS/` avec ses propres instructions, ses assignments de rôles et ses règles locales.
+**`AGENTS.md` est la seule source des règles.** Une règle a exactement un fichier
+propriétaire ; toute duplication est un bug. Les capacités propres à chaque agent
+vivent dans `CLAUDE.md` ou `GEMINI.md`, fichiers minces qui en héritent. Aucun second
+document ne redit le protocole — c'est précisément ce qu'avait la version précédente,
+à trois endroits, et ils avaient divergé.
 
-**AGENTS.md** est le point d'entrée universel. Chaque agent CLI, quel que soit son éditeur, lit ce fichier en premier. Il définit le protocole d'entrée, l'organisation des répertoires, les conventions partagées, et la procédure à suivre lors du premier lancement sur un nouveau poste. Les capacités et limites spécifiques à chaque agent se trouvent respectivement dans `CLAUDE.md` et `GEMINI.md` — des wrappers minimalistes qui référencent `AGENTS.md` et y ajoutent ce qui est propre à cet agent.
+**L'état est injecté, pas cherché.** `TOOLS/relay-state.mjs` construit
+`.relay-state.md` (vue générale) et un `.relay-state/<projet>.md` par projet : statut
+courant, dernières sessions *sur ce projet*, fichiers de règles locales existants,
+skills à la demande adaptées à ce que contient le projet. Un hook `UserPromptSubmit`
+en choisit un selon le `cwd` et l'injecte une fois par session, indexé sur le
+session_id.
 
-**tandem-brain.yml** est le hub d'état partagé. Il répertorie quels agents sont disponibles et ce qu'ils peuvent faire, quels projets sont enregistrés, et quelles tâches sont actuellement revendiquées. Avant de commencer une tâche longue, un agent écrit une entrée de claim ici. Avant de commencer n'importe quelle tâche, un agent vérifie les claims existants pour éviter les doublons.
+**Le statut est dérivé, l'intention est déclarée.** `relay-brain.yml` est manuel et
+porte l'intention humaine — un projet est `delivered` ou `abandoned` parce que vous
+l'avez dit. `TOOLS/project-scan.mjs` dérive active / idle / dormant du dernier commit
+git ou du mtime le plus récent et écrit `relay-projects.derived.yml`. Les deux
+fichiers ne peuvent pas se contredire en silence : déclarez un projet terminé alors
+qu'il bouge encore, et le scan signale la contradiction.
 
-**TANDEM_LOG.md** est le journal d'activité partagé — un relevé continu de ce que chaque agent a fait sur tous les projets. Les agents y écrivent des résumés par batch, pas des traces par fichier. C'est la surface de coordination principale entre agents opérant de manière asynchrone.
+**Chercher avant de lire.** `TOOLS/rag-index.mjs` indexe chaque section markdown et
+chaque bloc YAML dans un index BM25 ; `rag-query.mjs` y répond. JavaScript pur, aucune
+dépendance native, donc un clone tourne partout. Utiliser `--full` quand l'extrait ne
+suffit pas : un extrait qui oblige à ouvrir le fichier derrière coûte plus cher que
+pas d'index du tout.
 
-**SKILLS/** stocke les tables de routage de commandes par projet. Un fichier de skill définit les modes disponibles pour un projet, quels fichiers charger pour chaque mode, quand lancer des sous-agents, et comment détecter automatiquement l'intention depuis l'input utilisateur. Les skills s'accumulent avec le temps : dès qu'un workflow récurrent est formalisé, il devient réutilisable d'une session à l'autre.
-
-**TOOLS/** contient les scripts utilitaires partagés — des modules Node.js ESM dont l'utilité a été prouvée sur au moins deux projets. Chaque outil expose une interface CLI standard (arguments, codes de sortie, output `--json` optionnel) sans chemins hardcodés.
+**Les skills ont un budget.** Le `description:` d'une skill entre dans le prompt
+système à chaque session, à environ 0,37 token par octet. D'où deux modes de
+chargement : `native` (liée dans `.claude/skills/`, se déclenche seule, payée à chaque
+session) ou `rag` (absente du prompt, trouvée via l'index, lue à la demande). Le
+générateur d'état alerte au-delà de 4 000 octets de descriptions liées.
 
 ---
 
-## Stack
+## Ce qui a été mesuré
 
-| Couche | Technologie |
-|--------|-------------|
-| État et configuration | YAML, Markdown |
-| Scripts utilitaires | Node.js 18+ (ESM) |
-| Intégration agents | Claude Code CLI, Gemini CLI |
-| Versionnage du framework | Git |
-| Synchronisation données perso | MEGA / Nextcloud (ou tout service de sync) |
-| Panel navigateur terminal | wmux (optionnel, Windows) |
-| Proxy d'optimisation tokens | RTK — Rust Token Killer (optionnel) |
+Tout ce qui précède vient de la mesure de la version d'avant. Les chiffres proviennent
+du système interne dont Relay est la forme publique :
+
+| Constat | Mesure |
+|---|---|
+| Le tour de conversation est l'unité coûteuse | 4 000 à 11 000 tokens par tour, contre 614 pour toute la consolidation du contexte |
+| Travailler depuis le dossier du projet bat la racine | Même question : 3 tours / 96 665 tokens depuis la racine, **1 tour / 25 728 tokens** depuis le projet |
+| Un ordre au démarrage coûte plus que ce qu'il injecte | ~600 tokens injectés, 12-15 k tokens de lectures provoquées |
+| Les descriptions de skills sont un coût récurrent | ~0,37 token par octet, à chaque session, que la skill serve ou non |
+| Le contexte dérive quand personne ne regarde | La chaîne `@include` avait atteint 21 Ko sans que personne ne le voie |
+| Une skill de routage ne s'auto-déclenche pas | 0 déclenchement sur 3 projets — retirée le jour même |
+
+Les deux derniers justifient la règle qui compte le plus : **avant d'ajouter quoi que
+ce soit au contexte chargé à chaque session, mesurer.**
 
 ---
 
 ## Démarrage rapide
 
-### Prérequis
-
-- Node.js 18 ou supérieur
-- Claude Code CLI et/ou Gemini CLI, authentifiés
-- Git
-
-### Installation
-
 ```bash
-git clone <repo-url> relay
-cd relay
+git clone <repo-url> relay && cd relay
+cp relay-brain.template.yml relay-brain.yml
+npm run bootstrap
+npm run hooks
 ```
 
-Ouvrir le framework avec votre agent CLI :
+Ajouter ensuite votre machine et vos projets dans `relay-brain.yml`, puis lancer
+`npm run state`. Procédure complète, permissions comprises : [`SETUP.md`](SETUP.md).
 
-```bash
-claude .    # Claude Code
-gemini      # Gemini CLI
-```
+| Commande | Effet |
+|---|---|
+| `npm run bootstrap` | Installe, lie les skills, dérive les statuts, construit état et index |
+| `npm run hooks` | Installe les trois hooks dans la config de l'agent |
+| `npm run state` | Rafraîchit les statuts dérivés et l'état injecté |
+| `npm run index` | Reconstruit l'index de recherche |
+| `npm run rag -- --query "…"` | L'interroge |
+| `npm run rotate` | Archive les entrées de log de plus de deux mois |
 
-Puis lancer le wizard d'initialisation :
-
-```
-/framework-init
-```
-
-Le wizard détecte votre système d'exploitation, copie `tandem-brain.template.yml` vers `tandem-brain.yml`, configure les paramètres d'environnement des agents, propose l'installation de wmux (Windows) ou d'alternatives équivalentes (macOS, Linux), et propose d'installer et configurer RTK pour l'optimisation des tokens. La procédure de configuration manuelle complète est documentée dans `SETUP.md`.
+`npm run hooks` sauvegarde vos réglages avant d'y toucher, n'ajoute que les hooks —
+thème, permissions et hooks existants sont préservés — refuse un `settings.json`
+invalide plutôt que de l'écraser, et se relance sans risque. **La configuration des
+hooks est locale à chaque poste** : ni git ni la synchro cloud ne la transportent, pas
+plus que les jonctions NTFS — c'est aussi pourquoi `skills-link.mjs` doit tourner sur
+chaque machine. Si vous faites tourner deux profils (un `CLAUDE_CONFIG_DIR` perso et
+un pro), `RELAY_PROPAGATE_HOOKS=1` copie les hooks — et rien qu'eux — vers l'autre ;
+désactivé par défaut, parce qu'écraser la clé `hooks` d'un profil que l'utilisateur
+n'a pas nommé est une chose surprenante de la part d'un script d'installation.
 
 ---
 
-## Structure du projet
+## Arborescence
 
 ```
 relay/
-  AGENTS.md                    Point d'entrée universel — lu en premier par tous les agents CLI
-  CLAUDE.md                    Claude Code : capacités, limites, notes wmux
-  GEMINI.md                    Gemini CLI : capacités, limites, périmètre sandbox
-  tandem-bootstrap.md          Protocole d'entrée — 7 étapes obligatoires, chemins portables
-  tandem-brain.template.yml    Template d'état — copier en tandem-brain.yml au setup
-  tandem-brain.yml             Hub d'état actif — gitignored, synchronisé via cloud
-  TANDEM_LOG.md                Journal d'activité partagé — cross-agents, cross-projets
-  SETUP.md                     Guide d'installation sur un nouveau poste
-  README.md                    Version anglaise
-  README-fr.md                 Ce fichier
+  AGENTS.md                  Seule source des règles — lue en premier par tout agent
+  CLAUDE.md / GEMINI.md      Capacités et limites par agent (minces)
+  relay-brain.template.yml   Machines, agents, projets, intention — à copier
+  RELAY_LOG.md               Journal partagé, plus récent en haut, rotation mensuelle
+  relay-session-hook.js      UserPromptSubmit — injecte l'état une fois par session
+  relay-setup-hook.js        Installe les hooks ; les revérifie au SessionStart
+  relay-stop-hook.js         Rafraîchit les statuts en arrière-plan en fin de session
 
-  PROJECTS/
-    _template/                 Fichiers de départ pour un nouveau projet (committé)
-      AGENTS.md                Règles du projet : division des rôles, structure, conventions
-      CLAUDE.md                Hérite de ../../CLAUDE.md
-      GEMINI.md                Hérite de ../../GEMINI.md
-      .tandem-bootstrap.md     Overrides locaux pointant vers ../../tandem-bootstrap.md
-      TANDEM_LOG.md            Stub — l'activité va dans le log global
-    {nom-du-projet}/           Un répertoire par projet (cloud uniquement, gitignored)
+  TOOLS/                     Committés : le framework ne fonctionne pas sans eux
+    project-scan.mjs         Dérive le statut des projets depuis le disque
+    relay-state.mjs          Construit l'état injecté
+    rag-index.mjs            Construit l'index BM25
+    rag-query.mjs            L'interroge
+    skills-link.mjs          Lie les skills natives dans .claude/skills/
+    skills-all-native.mjs    Retour arrière : tout en natif
+    log-rotate.mjs           Archive les vieilles entrées de log
+    new-project.mjs          Crée et déclare un projet
+    lib/atomic.mjs           Écriture atomique (retry sur verrou Windows)
+    lib/rag.mjs              Tokenizer et BM25
 
-  SKILLS/
-    _template/SKILL.md         Template de skill vierge (committé)
-    {nom-du-projet}/SKILL.md   Table de routage par projet (cloud uniquement, gitignored)
+  PROJECTS/_template/        Fichiers de départ d'un projet
+  SKILLS/skills.manifest.json  Quelles skills existent et comment chacune se charge
+  SKILLS/_template/SKILL.md  Skill de départ
 
-  TOOLS/
-    README.md                  Catalogue d'outils et contrat d'interface (committé)
-    *.mjs                      Scripts utilitaires partagés (cloud uniquement, gitignored)
-
-  .claude/commands/
-    framework-init.md          Commande /framework-init pour Claude Code
-  .gemini/commands/
-    framework-init.toml        Commande /framework-init pour Gemini CLI
+  générés, jamais committés :
+  relay-projects.derived.yml  .relay-state.md  .relay-state/  .relay-rag.json
 ```
 
 ---
 
-## Modèle de synchronisation
+## Règles de conception
 
-Le framework sépare deux préoccupations : le protocole (agnostique aux agents, partageable, stable) et les données (personnelles, volatiles, couvrant plusieurs postes).
+Elles sont porteuses. Chacune existe parce que son contraire a été essayé.
 
-| Contenu | Git | Sync cloud |
-|---------|-----|------------|
-| AGENTS.md, CLAUDE.md, GEMINI.md | oui | — |
-| tandem-bootstrap.md, tandem-brain.template.yml | oui | — |
-| PROJECTS/_template/, SKILLS/_template/ | oui | — |
-| TOOLS/README.md | oui | — |
-| .gitignore, SETUP.md, README.md | oui | — |
-| tandem-brain.yml (actif, avec données projets) | non | oui |
-| TANDEM_LOG.md (historique complet) | non | oui |
-| PROJECTS/{projet}/ (données du projet) | non | oui |
-| TOOLS/*.mjs (scripts utilitaires) | non | oui |
-| SKILLS/{projet}/SKILL.md | non | oui |
-
-Le dépôt Git ne contient aucune donnée personnelle et peut être partagé publiquement ou cloné proprement. La couche synchronisée via cloud porte l'état vivant : projets actifs, skills accumulés, scripts utilitaires, et le journal d'activité complet.
-
----
-
-## Le framework grandit avec vous
-
-Relay n'est pas configuré une fois pour toutes. Il est conçu pour accumuler de la valeur de manière organique au fil du travail.
-
-Les skills sont ajoutés dès qu'un workflow récurrent est formalisé : la première fois qu'une séquence de commandes est exécutée, c'est ad hoc ; la troisième fois, elle devient une entrée de skill. Les tools suivent un protocole de promotion — un script rejoint `TOOLS/` uniquement après avoir prouvé son utilité sur au moins deux projets distincts. Le journal d'activité grossit à chaque session, donnant aux agents qui arrivent à froid une image immédiate de l'activité récente cross-projets. Le fichier brain gagne des projets un par un, améliorant la capacité de chaque agent à évaluer le contexte et à éviter les doublons.
-
-Les nouveaux agents CLI s'intègrent sans rien casser. Ajouter Codex CLI ou un futur agent signifie créer un nouveau fichier (`{AGENT}.md`) à la racine de relay, une entrée dans `tandem-brain.yml`, et optionnellement une définition de slash command. Le protocole d'entrée universel dans `AGENTS.md` gère le reste — le nouvel agent hérite du framework de coordination complet dès son premier lancement.
-
-Le framework grossit dans le cloud et reste léger dans Git.
+- **Un propriétaire par règle.** Trois documents décrivant le même protocole
+  divergeront.
+- **Généré et manuel ne se mélangent pas.** Un fichier est écrit par un script ou par
+  un humain, jamais les deux. Le fait mesuré va dans les fichiers générés,
+  l'intention reste manuelle.
+- **Écrire atomiquement.** `lib/atomic.mjs` : temporaire suffixé par le PID, retry sur
+  verrou Windows. Sans ça, environ une exécution sur six sortait en `EPERM` pendant
+  que la synchro cloud tenait le fichier.
+- **Valider avant la bascule.** Le temporaire est relu et parsé ; un résultat invalide
+  ne remplace jamais un original valide.
+- **Aucun chemin absolu.** `RELAY_ROOT` se résout depuis l'emplacement du script.
+- **Comparer les deux formes d'un chemin.** Sous Windows, le même dossier arrive tantôt
+  en forme courte 8.3 (`C:\Users\JOHNDO~1\…`), tantôt en forme longue, et la casse ne
+  distingue rien alors que `path.resolve()` la conserve. Le hook compare les deux
+  formes, en minuscules : sans ça l'état par projet n'est jamais choisi, et l'échec est
+  silencieux — on croit que le mécanisme marche, il sert la vue générale.
+- **Mesurer avant d'ajouter.** Le contexte chargé à chaque session est la seule chose
+  qui grossit sans que personne ait décidé de la faire grossir.
 
 ---
 
-## Ajouter un nouveau projet
+## Ajouter un agent CLI
 
-```bash
-node TOOLS/init-tandem-project.mjs mon-projet
-```
+1. Créer `{AGENT}.md` à la racine — inclure `AGENTS.md`, puis déclarer capacités et
+   limites.
+2. Ajouter une entrée sous `agents:` dans `relay-brain.yml`.
+3. Si le CLI gère les slash commands, ajouter
+   `.{agent}/commands/framework-init.{ext}`.
+4. Le consigner dans `RELAY_LOG.md`.
 
-Cette commande crée `PROJECTS/mon-projet/` depuis le template et enregistre le projet dans `tandem-brain.yml`. Remplir ensuite `PROJECTS/mon-projet/AGENTS.md` pour définir la division des rôles, la structure des fichiers et les conventions locales. Ajouter un fichier skill dans `SKILLS/mon-projet/SKILL.md` si le projet a des modes de commandes récurrents.
-
-Alternative manuelle : copier `PROJECTS/_template/` vers `PROJECTS/{nom}/`, adapter les cinq fichiers, et ajouter l'entrée du projet dans `tandem-brain.yml` manuellement.
-
----
-
-## Ajouter un nouvel agent CLI
-
-1. Créer `{AGENT}.md` à la racine de relay — commencer par `@./AGENTS.md`, puis déclarer les capacités et contraintes spécifiques à cet agent.
-2. Ajouter une entrée sous `agents:` dans `tandem-brain.yml`.
-3. Si l'agent supporte les slash commands personnalisés, créer `.{agent}/commands/framework-init.{ext}` en reprenant la même logique de wizard que les versions Claude et Gemini existantes.
-4. Logger l'ajout dans `TANDEM_LOG.md`.
-
-Le framework ne fait aucune hypothèse sur l'agent présent. Tout agent qui lit `AGENTS.md` et suit le protocole d'entrée est un participant de premier ordre.
+Relay ne présuppose rien des agents présents. Tout agent qui lit `AGENTS.md` est un
+participant de plein droit. Les agents non-Claude ne lisent pas `.claude/skills/` :
+leur indiquer `SKILLS/<nom>/SKILL.md` par son chemin.
 
 ---
 
-## Notes de configuration personnelle
+## Ce qui a été retiré, et pourquoi
 
-- Poste : Windows 11, PowerShell
-- Agents actifs : Claude Code (orchestrateur), Gemini CLI (worker)
-- wmux configuré via hook PostToolUse dans `~/.claude/settings.json` — panel navigateur visible en temps réel dans le terminal
-- RTK activé pour Claude Code et Gemini CLI via hook PreToolUse
-- Données personnelles synchronisées via cloud sync sur le répertoire `relay/`
+Conservé ici parce qu'un framework qui ne documente que ses ajouts n'apprend rien.
+
+- **`claims[]`** — protocole de réservation de tâches dans le brain. Aucun écrivain en
+  quatre mois. La coordination passait par le log, que les agents lisaient vraiment.
+- **`needs_bootstrap_sync`** — drapeau de propagation des changements de bootstrap.
+  Personne ne l'a jamais lu.
+- **`tandem-bootstrap.md`** — seconde copie du protocole d'entrée, fusionnée dans
+  `AGENTS.md`.
+- **Le protocole d'entrée obligatoire en 7 étapes** — remplacé par l'état injecté.
+- **Le scope des skills par projet** — `git status -uall` suit les jonctions, donc un
+  `git add .` aurait committé une copie divergente de chaque skill dans chaque dépôt.
+- **Une skill de routage vers les skills à la demande** — ne s'est jamais
+  auto-déclenchée. La suggestion voyage désormais dans l'état du projet, qui arrive à
+  coup sûr.
+
+---
+
+## Licence
+
+MIT.

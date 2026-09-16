@@ -1,30 +1,32 @@
-# ─── Données personnelles — cloud sync uniquement ─────────────────────────────
+# ─── Personal data — cloud sync only, never Git ──────────────────────────────
 
-# PROJECTS : toutes les données perso sauf le template
+# PROJECTS: everything but the template
 PROJECTS/*/
 !PROJECTS/_template/
 
-# TOOLS : README et template en git, scripts réels en cloud
-TOOLS/*.mjs
-!TOOLS/README.md
-
-# SKILLS : README et template en git, skill files réels en cloud
+# SKILLS: the manifest, the README and the template are in Git.
+# Real skills are personal — cloud sync only.
 SKILLS/**/SKILL.md
 !SKILLS/_template/SKILL.md
 
-# tandem-brain.yml actif (données perso, next_report_num, claims actifs...)
-tandem-brain.yml
+# The active brain (machines, paths, project intent)
+relay-brain.yml
 
-# TANDEM_LOG working copy (log complet — cloud uniquement)
-# Le stub vide reste en git pour éviter l'erreur "fichier manquant" au premier lancement.
-# Décommenter pour exclure le log entièrement du git :
-# TANDEM_LOG.md
+# RELAY_LOG working copy. The stub stays in Git so a first run does not hit a
+# missing file. Uncomment to keep the log out of Git entirely:
+# RELAY_LOG.md
+LOG/
 
-# ─── Sortie et fichiers générés ───────────────────────────────────────────────
-*.pdf
+# ─── Generated — rebuilt by npm run bootstrap, never committed ────────────────
+relay-projects.derived.yml
+.relay-state.md
+.relay-state/
+.relay-rag.json
+.claude/skills/
+*.tmp
+*.old
 
-
-# ─── Environnement local ──────────────────────────────────────────────────────
+# ─── Local environment ───────────────────────────────────────────────────────
 .env
 .env.local
 node_modules/
@@ -33,16 +35,13 @@ __pycache__/
 .venv/
 venv/
 
-# ─── OS / éditeur ─────────────────────────────────────────────────────────────
+# ─── OS / editor ─────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
 *.swp
 *.swo
 
-# ─── wmux est une install locale, pas dans le framework ──────────────────────
-wmux/
-
-# ─── Credentials ──────────────────────────────────────────────────────────────
+# ─── Credentials ─────────────────────────────────────────────────────────────
 *.secret.*
 .credentials.json

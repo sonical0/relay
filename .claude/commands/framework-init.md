@@ -1,111 +1,70 @@
-Lance le wizard d'initialisation du Relay pour un nouveau poste.
-
-## Étapes du wizard
-
-### Étape 1 — Détecter l'OS
-
-Détecter l'OS en cours :
-- Windows : `$env:OS` contient "Windows" ou PowerShell est disponible
-- macOS : `uname -s` retourne `Darwin`
-- Linux : `uname -s` retourne `Linux`
-
-Confirmer à l'utilisateur : "OS détecté : [Windows/macOS/Linux]"
-
+---
+description: "Set Relay up on this machine: brain, hooks, skills, status, index."
 ---
 
-### Étape 2 — Configurer tandem-brain.yml
+Run the Relay initialization for a new machine. Work through the steps in order and
+report what you did at the end. Do not skip a step silently — if one fails, say so and
+continue with the rest.
 
-Vérifier si `./tandem-brain.yml` existe.
+## 1. Detect the environment
 
-Si **absent** : copier `./tandem-brain.template.yml` → `./tandem-brain.yml`
-```powershell
-# Windows
-Copy-Item tandem-brain.template.yml tandem-brain.yml
-```
+- OS and shell (`$env:OS` / `uname -s`)
+- Hostname — `$env:COMPUTERNAME` on Windows, `hostname` elsewhere. This is the key
+  used under `machines:` in the brain.
+- `node --version` — Relay needs Node 20+. Stop here if it is older.
+
+## 2. The brain
+
+If `./relay-brain.yml` is missing, copy `relay-brain.template.yml` to it.
+
+Then edit it — it is a manual file, so make the edits explicit and show them:
+
+- add an entry under `machines:` keyed by this hostname, with `relay_root` set to the
+  absolute path of this directory, plus `os` and `shell`
+- under `agents:`, keep only the CLIs actually installed (test `claude --version`,
+  `gemini --version`, and any other the user mentions)
+- leave `projects:` alone; projects are added with `node TOOLS/new-project.mjs`
+
+Never invent an `intent:` value. It is the user's to declare.
+
+## 3. Bootstrap
+
 ```bash
-# macOS / Linux
-cp tandem-brain.template.yml tandem-brain.yml
+npm run bootstrap
 ```
 
-Configurer dans `tandem-brain.yml` :
-- `agents.claude.env` : `windows-powershell` | `macos-zsh` | `linux-bash` (selon OS détecté)
-- `agents.gemini.env` : idem
-- `last_updated` : date du jour (YYYY-MM-DD)
-- `last_agent` : claude
+This installs the one dependency, links `load: native` skills into `.claude/skills/`,
+derives project status, builds the injected state and the search index. Report the
+counts it prints.
 
----
+## 4. Hooks
 
-### Étape 3 — Configurer wmux
-
-**Windows** :
-1. Tenter `wmux ping`
-2. Si succès → mettre `wmux_status: operational` dans tandem-brain.yml. Confirmer à l'utilisateur.
-3. Si échec → expliquer :
-   > "wmux est un panel navigateur visible en temps réel, intégré au terminal. Il permet aux agents CLI de naviguer sur le web pendant que tu vois ce qui se passe en direct. Sur Windows, il s'intègre nativement avec Claude Code et Gemini CLI."
-   Proposer l'installation. Si accepté : guider l'installation (chercher la documentation wmux). Si refusé : mettre `wmux_status: unavailable`.
-
-**macOS** :
-> "wmux n'est pas disponible nativement sur macOS. Des alternatives existent (Warp, iTerm2 + AppleScript, etc.) mais ne sont pas encore intégrées officiellement. Veux-tu qu'on explore les options disponibles sur ton poste ?"
-Si oui : rechercher et proposer des alternatives. Si non : mettre `wmux_status: unavailable`.
-
-**Linux** :
-> "wmux n'est pas disponible nativement sur Linux. Des alternatives comme tmux + xdotool sont possibles mais non intégrées officiellement. Veux-tu qu'on explore les options ?"
-Si oui : rechercher et proposer. Si non : mettre `wmux_status: unavailable`.
-
----
-
-### Étape 4 — Vérifier l'accessibilité des dossiers
-
-Vérifier que ces dossiers existent et sont accessibles :
-- `./PROJECTS/` — lister les projets disponibles (depuis cloud sync si présents)
-- `./SKILLS/` — lister les skills disponibles
-- `./TOOLS/` — lister les scripts disponibles (*.mjs)
-
-Informer l'utilisateur de ce qui est disponible. Si les dossiers sont vides (pas encore synchronisés depuis le cloud) : l'indiquer et proposer de créer un premier projet avec `node TOOLS/init-tandem-project.mjs {nom}` (si init-tandem-project.mjs est disponible).
-
----
-
-### Étape 5 — RTK (Rust Token Killer)
-
-Vérifier : `rtk --version`
-
-Si **absent** : présenter RTK à l'utilisateur :
-> "RTK (Rust Token Killer) est un proxy CLI transparent qui réduit la consommation de tokens de 60 à 90% sur les opérations courantes comme git, npm, etc. Il fonctionne via un hook PreToolUse — par exemple, quand tu tapes `git status`, Claude Code exécute automatiquement `rtk git status` à la place, sans que tu aies à changer quoi que ce soit. Les économies sont visibles via `rtk gain`."
-
-Détecter quels CLI agents sont installés :
-- `claude --version` → Claude Code présent ?
-- `gemini --version` → Gemini CLI présent ?
-
-Proposer : "Veux-tu installer RTK et configurer le hook pour [liste des CLI détectés] ?"
-
-Si **accepté** : guider l'installation de RTK, puis ajouter le hook PreToolUse dans `~/.claude/settings.json` (et équivalent Gemini si applicable). Mettre `rtk_status: operational` dans tandem-brain.yml.
-
-Si **refusé** : mettre `rtk_status: declined` dans tandem-brain.yml et continuer.
-
-Si **déjà installé** : confirmer, mettre `rtk_status: operational` dans tandem-brain.yml.
-
----
-
-### Étape 6 — Résumé et log
-
-Afficher un résumé de la configuration :
-
-```
-Relay — Configuration terminée
-======================================
-OS           : [détecté]
-wmux         : [operational / unavailable]
-RTK          : [operational / declined / non installé]
-
-Projets disponibles    : [liste depuis PROJECTS/ ou "aucun"]
-Skills disponibles     : [liste depuis SKILLS/ ou "aucun"]
-Scripts disponibles    : [liste depuis TOOLS/ ou "aucun"]
-
-Commandes disponibles  :
-  /framework-init   — Relancer ce wizard
+```bash
+node relay-setup-hook.js
 ```
 
-Écrire dans `./TANDEM_LOG.md` :
+Tell the user the hooks are local to this machine, are never committed, and that the
+agent has to be restarted for them to take effect.
+
+## 5. Permissions
+
+Check the user `settings.json` (respect `$CLAUDE_CONFIG_DIR`) for a `permissions`
+block covering this directory. If it is missing, show the user the block from
+`SETUP.md` section 3 with the real absolute path filled in, and offer to add it.
+Without it, every skill load from a project directory costs an approval prompt.
+
+## 6. Verify and report
+
+```bash
+npm run state
+npm run rag -- --query "atomic write validate before swap"
 ```
-{date} [claude] framework — Setup initial terminé. OS: [OS], wmux: [status], RTK: [status]
-```
+
+The RAG query should surface the writing-conventions section of AGENTS.md without opening a file (SETUP.md ranks first, since it quotes the query itself). Then summarise:
+OS and hostname, which agents were found, how many skills are native versus on demand,
+how many projects were detected, whether the hooks and permissions are in place, and
+anything that failed.
+
+Finally, tell the user the one habit that matters: **open the agent inside
+`PROJECTS/<name>/`, not at the Relay root** — the injected state is then about that
+project.
