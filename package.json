@@ -18,7 +18,9 @@
     "rag": "node TOOLS/rag-query.mjs",
     "rotate": "node TOOLS/log-rotate.mjs --brain",
     "hooks": "node relay-setup-hook.js",
-    "test": "node --test \"TOOLS/tests/*.test.mjs\""
+    "test": "node --test \"TOOLS/tests/*.test.mjs\"",
+    "supervision": "node TOOLS/supervision/py.mjs TOOLS/supervision/launch.py",
+    "supervision:test": "node TOOLS/supervision/py.mjs -m unittest discover -s TOOLS/supervision/tests -t TOOLS/supervision"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

@@ -1,0 +1,89 @@
+{
+  "_doc": "Evaluation scenarios of the supervision protocol: each scenario replays tool calls on a fresh board (A: src/a/*, D integrator: src/d/*) and checks the refusals (error), the expected alerts (alerts) and the forbidden ones (no_alerts). Step: do = /api/report payload; error = regex of the expected refusal; set = field of a manager; age = ages a manager or a worker (seconds).",
+  "scenarios": [
+    {"name": "out-of-scope file refused", "steps": [
+      {"do": {"kind": "files", "id": "A", "add": ["src/b/x.js"]}, "error": "out of scope"}]},
+    {"name": "common file refused to a manager", "steps": [
+      {"do": {"kind": "files", "id": "A", "add": ["package.json"]}, "error": "common file"}]},
+    {"name": "common file accepted for the integrator", "steps": [
+      {"do": {"kind": "files", "id": "D", "add": ["package.json"]}}]},
+    {"name": "without a scope, nothing can be declared", "steps": [
+      {"do": {"kind": "files", "id": "C", "add": ["src/c/z.js"]}, "error": "no scope"}]},
+    {"name": "active worker limit", "steps": [
+      {"do": {"kind": "worker", "id": "A1", "status": "working", "task": "x"}},
+      {"do": {"kind": "worker", "id": "A2", "status": "working", "task": "x"}},
+      {"do": {"kind": "worker", "id": "A3", "status": "working", "task": "x"}},
+      {"do": {"kind": "worker", "id": "A4", "status": "working", "task": "x"}},
+      {"do": {"kind": "worker", "id": "A5", "status": "working", "task": "x"}, "error": "already has 4 active workers"}]},
+    {"name": "badly named worker", "steps": [
+      {"do": {"kind": "worker", "id": "A9", "status": "working", "task": "x"}}],
+     "alerts": ["worker_name"]},
+    {"name": "unknown model refused", "steps": [
+      {"do": {"kind": "worker", "id": "A1", "status": "working", "model": "gpt"}, "error": "unknown model"}]},
+    {"name": "unknown status refused", "steps": [
+      {"do": {"kind": "manager", "id": "A", "status": "dormant"}, "error": "unknown status"}]},
+    {"name": "stopped manager: no worker starts", "steps": [
+      {"set": {"manager": "A", "field": "stopped", "value": true}},
+      {"do": {"kind": "worker", "id": "A1", "status": "working", "task": "x"}, "error": "stopped by the user"}]},
+    {"name": "sonnet worker done without verification: red alert", "steps": [
+      {"do": {"kind": "worker", "id": "A1", "status": "working", "model": "sonnet", "task": "x"}},
+      {"do": {"kind": "worker", "id": "A1", "status": "done"}}],
+     "alerts": ["worker_unverified"]},
+    {"name": "verified worker: no alert", "steps": [
+      {"do": {"kind": "worker", "id": "A1", "status": "working", "task": "x"}},
+      {"do": {"kind": "worker", "id": "A1", "status": "done", "verified": true}}],
+     "no_alerts": ["worker_unverified"]},
+    {"name": "collision: two managers on the same file", "steps": [
+      {"do": {"kind": "assign", "id": "B", "scope": ["src/a/*"]}},
+      {"do": {"kind": "files", "id": "A", "add": ["src/a/x.js"]}},
+      {"do": {"kind": "files", "id": "B", "add": ["src/a/x.js"]}}],
+     "alerts": ["collision"]},
+    {"name": "delivery without SHA refused", "steps": [
+      {"do": {"kind": "manager", "id": "A", "branch": "feat/a"}},
+      {"do": {"kind": "submit", "id": "A", "check": "green"}, "error": "SHA required"}]},
+    {"name": "delivery without branch refused", "steps": [
+      {"do": {"kind": "submit", "id": "A", "sha": "abc1234", "check": "green"}, "error": "no branch"}]},
+    {"name": "delivery with a red check refused", "steps": [
+      {"do": {"kind": "manager", "id": "A", "branch": "feat/a"}},
+      {"do": {"kind": "submit", "id": "A", "sha": "abc1234", "check": "red"}, "error": "check not green"}]},
+    {"name": "delivery blocked by an open criterion, then accepted", "steps": [
+      {"do": {"kind": "manager", "id": "A", "branch": "feat/a", "task": "T1 trial"}},
+      {"do": {"kind": "task", "id": "T1", "manager": "A", "criteria_add": ["criterion one"]}},
+      {"do": {"kind": "submit", "id": "A", "sha": "abc1234", "check": "green"}, "error": "T1 #1 criterion one"},
+      {"do": {"kind": "task", "id": "T1", "criteria_pass": [1]}},
+      {"do": {"kind": "check", "id": "A", "rc": 0}},
+      {"do": {"kind": "submit", "id": "A", "sha": "abc1234", "check": "green"}}]},
+    {"name": "\"green\" check declared but never recorded: delivery refused", "steps": [
+      {"do": {"kind": "manager", "id": "A", "branch": "feat/a"}},
+      {"do": {"kind": "submit", "id": "A", "sha": "abc1234", "check": "green"}, "error": "no green check recorded"}]},
+    {"name": "overlapping scopes at assignment", "steps": [
+      {"do": {"kind": "assign", "id": "B", "scope": ["src/*"]}}],
+     "alerts": ["scope_overlap"]},
+    {"name": "disjoint scopes: no alert", "steps": [
+      {"do": {"kind": "assign", "id": "B", "scope": ["src/b/*", "test/b/*"]}}],
+     "no_alerts": ["scope_overlap"]},
+    {"name": "three red checks in a row", "steps": [
+      {"do": {"kind": "check", "id": "A", "rc": 1}}, {"do": {"kind": "check", "id": "A", "rc": 1}},
+      {"do": {"kind": "check", "id": "A", "rc": 1}}],
+     "alerts": ["check_red"]},
+    {"name": "a green check resets the reds", "steps": [
+      {"do": {"kind": "check", "id": "A", "rc": 1}}, {"do": {"kind": "check", "id": "A", "rc": 1}},
+      {"do": {"kind": "check", "id": "A", "rc": 0}}, {"do": {"kind": "check", "id": "A", "rc": 1}}],
+     "no_alerts": ["check_red"]},
+    {"name": "repeated merge conflict", "steps": [
+      {"do": {"kind": "merge", "branch": "feat/a", "manager": "A", "status": "conflict"}},
+      {"do": {"kind": "merge", "branch": "feat/a", "status": "conflict"}}],
+     "alerts": ["merge_conflict"]},
+    {"name": "silent manager", "steps": [
+      {"do": {"kind": "manager", "id": "A", "status": "working", "task": "T1"}},
+      {"age": {"manager": "A", "seconds": 3600}}],
+     "alerts": ["stall"]},
+    {"name": "worker without news", "steps": [
+      {"do": {"kind": "worker", "id": "A1", "status": "working", "task": "x"}},
+      {"age": {"worker": "A1", "seconds": 7200}}],
+     "alerts": ["worker_stall"]},
+    {"name": "no integrator designated", "steps": [
+      {"do": {"kind": "remove-manager", "id": "D"}}],
+     "alerts": ["no_integrator"]}
+  ]
+}
