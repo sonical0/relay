@@ -1,0 +1,54 @@
+# Example `supervision:` block for relay-brain.yml (read by TOOLS/supervision/config.py).
+# It lives under the project entry, next to `path:`. Every key is optional: a missing key takes the
+# default from config.py (DEFAULTS). Launch: npm run supervision -- example-app
+projects:
+  example-app:
+    path: "{{relay_root}}/PROJECTS/example-app"   # or the absolute path of the git clone
+    summary: "Example web app supervised by a team of agents."
+    supervision:
+      base_branch: dev            # branch the integrator merges into; workers branch off it
+      # Check run by `sup.py check` under the lock: each step is an npm script name (string) or an explicit
+      # command (argument list) for projects without npm. `quick` (no build) is the default; `full`
+      # (`sup.py check --full`) runs once, on the merged tree of the merge train.
+      check:
+        quick: [typecheck, lint, test]
+        full: check
+        # Without npm, e.g. Python:
+        # quick: [[.venv/bin/python, -m, pytest, -q], [.venv/bin/python, -m, ruff, check, .]]
+      lock: .claude/check.lock    # check lock, relative to the project path: one check at a time on the host
+      managers: [A, B, C, D]      # one letter per manager session; each owns a scope (see `scopes` below)
+      integrator: D               # the manager that merges ("merge train") and owns the common files
+      max_workers: 4              # workers (subagents in their own worktree) per manager
+      quota_brake: 85             # % of the 5-hour quota window: above it, each manager is held to 2 active workers
+      quota_resume: false         # true: when an exhausted window resets, the board tells managers to resume
+      # Host load brakes (hostload.py): tighten at *_brake % held for *_window seconds, release under *_release %.
+      # A tightened brake also holds each manager to 2 active workers.
+      cpu_brake: 90
+      cpu_release: 75
+      cpu_window: 300
+      mem_brake: 90
+      mem_release: 80
+      mem_window: 60
+      host_limits: true           # false: no cap on total workers and no `npm ci` semaphore
+      # workers_total: 6          # cap on active workers, all managers together (default: threads // 2)
+      # npm_ci_max: 1             # concurrent `npm ci` (default: 1 under 8 threads, 2 above)
+      # Git-ignored directories shared by every worktree with the main checkout (junction): no `npm ci`
+      # per worker, and `npm install` is refused inside a worktree.
+      shared_dirs: []             # e.g. [node_modules]
+      # How to set up a worktree, one sentence, repeated in every resume sheet.
+      setup: "npm ci in each new worktree; copy .env.example to .env"
+      port: 8765                  # dashboard http://127.0.0.1:<port>/ ; one port per supervised project
+      jira_url: ""                # e.g. https://example.atlassian.net: ticket keys (TASK-1) become links
+      # Files reserved to the integrator: no other manager or worker edits them (globs allowed).
+      common:
+        - package.json
+        - package-lock.json
+        - .github/workflows/*
+        - migrations/*            # migration numbers allocated by the integrator
+        - .env*
+      # Suggested scopes (documentation only, the board does not read this key): give each manager
+      # a disjoint part of the tree, the board raises `scope_overlap` when declared scopes collide.
+      #   A: src/api/*        backend routes and services
+      #   B: src/ui/*         front-end components and pages
+      #   C: src/jobs/*       background jobs, imports, exports
+      #   D: integrator       merges, common files, release notes
