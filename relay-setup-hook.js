@@ -1,14 +1,23 @@
 /**
  * relay-setup-hook.js — installs the Relay hooks.
  *
- * Usage (once per machine):
+ * Usage (once per machine — `npm run init` does it for you):
  *   node relay-setup-hook.js
  *
- * It also installs itself as a SessionStart hook, so every Claude Code start checks
- * the hooks are still present and re-adds them if not (after a settings reset, for
- * instance). When something was missing, it prints a visible warning.
+ * It also installs itself as an async SessionStart hook, so every Claude Code start checks
+ * the hooks are still present and repairs them (settings reset, repo moved). When
+ * something changed, it prints a visible warning.
  *
- * Hook configuration is local to the machine and never committed.
+ * Hooks installed:
+ *   SessionStart  startup|resume|clear|compact  relay-start-hook.js   injected state
+ *   SessionStart  (all)                          relay-setup-hook.js   this self-check, async
+ *   Stop                                         relay-stop-hook.js    journal check + after-turn
+ *   PreToolUse    Bash                           supervision-guard.js  push guard (exits at once
+ *                                                                      outside supervision)
+ * Removed when found: relay-session-hook.js (UserPromptSubmit, replaced 2026-10-14).
+ *
+ * Merge rule: only add what is missing and fix stale paths; never touch another tool's
+ * hook. Hook configuration is local to the machine and never committed.
  */
 
 const fs = require('fs');
@@ -19,139 +28,148 @@ const path = require('path');
 const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const settingsPath = path.join(configDir, 'settings.json');
 
-// Propagation to the other config dirs is opt-in. If you run two profiles — a
-// personal and a work one — set RELAY_PROPAGATE_HOOKS=1 and the hooks, and only the
-// hooks, are copied across. It is off by default because overwriting the `hooks` key
-// of a config dir the user did not name is a surprising thing for a setup script to do.
+// Propagation to other config dirs is opt-in (RELAY_PROPAGATE_HOOKS=1): writing into a
+// config dir the user did not name is a surprising thing for a setup script to do.
 const siblingConfigDirs = process.env.RELAY_PROPAGATE_HOOKS === '1'
   ? ['.claude', '.claude-work']
     .map((d) => path.join(os.homedir(), d))
     .filter((d) => path.resolve(d) !== path.resolve(configDir) && fs.existsSync(d))
   : [];
 
-const sessionHook = path.join(__dirname, 'relay-session-hook.js');   // UserPromptSubmit
-const setupHook = __filename;                                       // SessionStart (this file)
-const stopHook = path.join(__dirname, 'relay-stop-hook.js');        // Stop
+const startHook = path.join(__dirname, 'relay-start-hook.js');
+const setupHook = __filename;
+const stopHook = path.join(__dirname, 'relay-stop-hook.js');
+const guardHook = path.join(__dirname, 'TOOLS', 'supervision', 'supervision-guard.js');
+const OBSOLETE = ['relay-session-hook.js'];
 
-// ── Read existing settings ───────────────────────────────────────────────────
-// An unreadable settings.json must NEVER restart from {}: the rewrite below would
-// then erase enabledPlugins, mcpServers, theme, permissions… Absent → {} is
-// legitimate (first run). Present but invalid → bail out.
-let settings = {};
-if (fs.existsSync(settingsPath)) {
-  let raw;
+const WANTED = [
+  // [event, marker, definition, matcher]
+  // 5 s: reads a ~1.4 KB file and exits. Synchronous: its context must be there before
+  // the first prompt. `compact` re-injects it after every compaction.
+  ['SessionStart', 'relay-start-hook.js', { type: 'command', command: `node "${startHook}"`, timeout: 5 }, 'startup|resume|clear|compact'],
+  // Async: it may run skills-link.mjs, which touches the disk.
+  ['SessionStart', 'relay-setup-hook.js', { type: 'command', command: `node "${setupHook}"`, timeout: 15, async: true }],
+  // Returns at once (the work is detached); the margin only covers reading the log.
+  ['Stop', 'relay-stop-hook.js', { type: 'command', command: `node "${stopHook}"`, timeout: 20 }],
+  // Exits without reading anything unless the command contains "push".
+  ...(fs.existsSync(guardHook)
+    ? [['PreToolUse', 'supervision-guard.js', { type: 'command', command: `node "${guardHook}"`, timeout: 10 }, 'Bash']]
+    : []),
+];
+
+// Two commands can name the same file with different separators or case; comparing
+// strings would rewrite the settings (backup included) on every start for nothing.
+function sameFile(command, expected) {
+  const file = (c) => { const m = String(c).match(/"([^"]+)"|'([^']+)'/); return m ? path.resolve(m[1] ?? m[2]) : null; };
+  const a = file(command), b = file(expected);
+  if (!a || !b) return command === expected;
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/** Merges the Relay hooks into a `hooks` object in place. Returns the list of changes. */
+function mergeHooks(hooks) {
+  const changes = [];
+  for (const event of Object.keys(hooks)) {
+    const groups = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const kept = [];
+    for (const g of groups) {
+      const before = (g.hooks ?? []).length;
+      g.hooks = (g.hooks ?? []).filter((h) => !(typeof h.command === 'string' && OBSOLETE.some((m) => h.command.includes(m))));
+      if (g.hooks.length < before) changes.push(`${event} → obsolete hook removed`);
+      if (g.hooks.length) kept.push(g);
+    }
+    if (kept.length) hooks[event] = kept; else delete hooks[event];
+  }
+  for (const [event, marker, def, matcher] of WANTED) {
+    const groups = Array.isArray(hooks[event]) ? hooks[event] : [];
+    let present = false;
+    for (const g of groups) {
+      for (const h of g.hooks ?? []) {
+        if (typeof h.command !== 'string' || !h.command.includes(marker)) continue;
+        present = true;
+        if (!sameFile(h.command, def.command)) { h.command = def.command; changes.push(`${event} → ${marker} path fixed`); }
+        if (matcher && g.matcher !== matcher) { g.matcher = matcher; changes.push(`${event} → matcher ${matcher}`); }
+      }
+    }
+    if (!present) {
+      hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [def] }, ...groups];
+      changes.push(`${event} → ${marker}`);
+    }
+  }
+  return changes;
+}
+
+/** Reads a settings.json. Absent → {}. Unreadable or invalid → null (never rewrite it). */
+function readSettings(file) {
+  if (!fs.existsSync(file)) return {};
   try {
-    raw = fs.readFileSync(settingsPath, 'utf8');
+    const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return s && typeof s === 'object' && !Array.isArray(s) ? s : null;
   } catch (e) {
-    process.stderr.write(`[RELAY] settings.json unreadable (${e.message}) — no change.\n`);
-    process.exit(0);
-  }
-  try {
-    settings = JSON.parse(raw);
-  } catch (e) {
-    process.stderr.write(
-      `[RELAY] settings.json invalid (${e.message}).\n` +
-      `        Hooks NOT reinstalled, so your settings are not overwritten.\n` +
-      `        Fix ${settingsPath} then run: node "${__filename}"\n`
-    );
-    process.exit(0);
-  }
-  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) {
-    process.stderr.write('[RELAY] settings.json is not an object — no change.\n');
-    process.exit(0);
+    process.stderr.write(`[RELAY] ${file} invalid (${e.message}) — hooks NOT reinstalled, fix it then run: node "${__filename}"\n`);
+    return null;
   }
 }
 
-if (!settings.hooks) settings.hooks = {};
-
-let modified = false;
-const added = [];
-
-function ensure(event, script, entry, label) {
-  const groups = settings.hooks[event] || [];
-  const present = groups.some((g) => g.hooks?.some((h) => h.command?.includes(script)));
-  if (present) return;
-  settings.hooks[event] = [{ hooks: [entry] }, ...groups];
-  added.push(`${event} → ${script}`);
-  modified = true;
+/** Dated backup, atomic write, re-read before the swap. */
+function writeSettings(file, settings) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const stamp = new Intl.DateTimeFormat('en-CA').format(new Date()).replace(/-/g, '');
+  if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak-${stamp}`);
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
+  JSON.parse(fs.readFileSync(tmp, 'utf8'));
+  fs.renameSync(tmp, file);
 }
 
-// 5 s: the hook reads a 1.4 KB file and exits, measured at ~70 ms.
-ensure('UserPromptSubmit', 'relay-session-hook.js',
-  { type: 'command', command: `node "${sessionHook}"`, timeout: 5 });
-
-ensure('SessionStart', 'relay-setup-hook.js',
-  { type: 'command', command: `node "${setupHook}"`, timeout: 15, async: true });
-
-if (fs.existsSync(stopHook)) {
-  ensure('Stop', 'relay-stop-hook.js',
-    { type: 'command', command: `node "${stopHook}"`, timeout: 20 });
+const settings = readSettings(settingsPath);
+let changes = [];
+if (settings) {
+  if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {};
+  changes = mergeHooks(settings.hooks);
+  if (changes.length) {
+    try { writeSettings(settingsPath, settings); } catch (e) {
+      process.stderr.write(`[RELAY] Could not write ${settingsPath} (${e.message}).\n`);
+      changes = [];
+    }
+  }
 }
 
-// ── Skill links → .claude/skills/ ────────────────────────────────────────────
-// Neither NTFS junctions nor symlinks survive cloud sync: they have to be recreated
-// locally on each machine. Idempotent, silent when everything is already in place.
+// Skill links and rule copies: neither junctions nor symlinks survive cloud sync, so they
+// are recreated locally. Idempotent and silent. Non-blocking.
 try {
   const skillsLink = path.join(__dirname, 'TOOLS', 'skills-link.mjs');
   if (fs.existsSync(skillsLink)) {
-    require('child_process').execFileSync(process.execPath, [skillsLink], {
-      stdio: 'ignore', timeout: 10000,
-    });
+    require('child_process').execFileSync(process.execPath, [skillsLink], { stdio: 'ignore', timeout: 10000 });
   }
-} catch (_) {
-  // Non-blocking: missing links degrade skills, they do not break the session.
+} catch (_) {}
+
+// Opt-in propagation, outside `if (changes)`: a sibling that lost its hooks cannot repair
+// itself — its own SessionStart went with them. Same merge, nothing else touched.
+for (const dir of siblingConfigDirs) {
+  const sibPath = path.join(dir, 'settings.json');
+  if (!fs.existsSync(sibPath)) continue;
+  const sib = readSettings(sibPath);
+  if (!sib) continue;
+  if (!sib.hooks || typeof sib.hooks !== 'object') sib.hooks = {};
+  const c = mergeHooks(sib.hooks);
+  if (!c.length) continue;
+  try { writeSettings(sibPath, sib); process.stderr.write(`[RELAY] Hooks completed in ${sibPath}: ${c.join(', ')}\n`); }
+  catch (e) { process.stderr.write(`[RELAY] Propagation to ${dir} failed: ${e.message}\n`); }
 }
 
-// ── Save + visible warning ───────────────────────────────────────────────────
-if (modified) {
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-
-  // Dated backup, then an atomic write: settings.json must never be left half
-  // written if the process is killed mid-way.
-  const stamp = new Intl.DateTimeFormat('en-CA').format(new Date()).replace(/-/g, '');
-  try {
-    if (fs.existsSync(settingsPath)) fs.copyFileSync(settingsPath, `${settingsPath}.bak-${stamp}`);
-  } catch (e) {
-    process.stderr.write(`[RELAY] Backup failed (${e.message}) — write cancelled.\n`);
-    process.exit(0);
-  }
-
-  const tmpPath = `${settingsPath}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2), 'utf8');
-  JSON.parse(fs.readFileSync(tmpPath, 'utf8'));   // never replace a valid file with an invalid one
-  fs.renameSync(tmpPath, settingsPath);
-
-  // Propagate the hooks to the other config dirs without touching the rest of their
-  // settings — theme, model, permissions may legitimately differ.
-  for (const dir of siblingConfigDirs) {
-    const sibPath = path.join(dir, 'settings.json');
-    try {
-      if (!fs.existsSync(sibPath)) continue;
-      const sib = JSON.parse(fs.readFileSync(sibPath, 'utf8'));
-      sib.hooks = settings.hooks;
-      const sibTmp = `${sibPath}.tmp`;
-      fs.writeFileSync(sibTmp, JSON.stringify(sib, null, 2), 'utf8');
-      JSON.parse(fs.readFileSync(sibTmp, 'utf8'));
-      fs.renameSync(sibTmp, sibPath);
-      added.push(`hooks propagated → ${dir}`);
-    } catch (e) {
-      process.stderr.write(`[RELAY] Propagation to ${dir} failed: ${e.message}\n`);
-    }
-  }
-
-  const box = (s) => `|  ${s.padEnd(52)}|`;
+if (changes.length) {
+  const box = (s) => `|  ${s.padEnd(56)}|`;
   process.stderr.write([
-    '',
-    '+' + '-'.repeat(54) + '+',
-    box('RELAY — HOOKS WERE MISSING, REINSTALLED'),
-    '+' + '-'.repeat(54) + '+',
-    ...added.map((h) => box('+ ' + h)),
-    '+' + '-'.repeat(54) + '+',
-    box(`file: ${settingsPath.slice(-44)}`),
+    '', '+' + '-'.repeat(58) + '+',
+    box('RELAY — HOOKS UPDATED'),
+    '+' + '-'.repeat(58) + '+',
+    ...changes.map((h) => box('+ ' + h)),
+    '+' + '-'.repeat(58) + '+',
+    box(`file: ${settingsPath.slice(-50)}`),
     box('Restart Claude Code to activate them.'),
-    '+' + '-'.repeat(54) + '+',
-    '',
+    '+' + '-'.repeat(58) + '+', '',
   ].join('\n'));
-} else if (process.env.CLAUDE_HOOK_EVENT !== 'SessionStart' && process.stdout.isTTY) {
+} else if (process.stdout.isTTY) {
   console.log('[RELAY] Hooks already in place — nothing to do.');
 }

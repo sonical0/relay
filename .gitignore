@@ -4,27 +4,37 @@
 PROJECTS/*/
 !PROJECTS/_template/
 
-# SKILLS: the manifest, the README and the template are in Git.
-# Real skills are personal — cloud sync only.
+# SKILLS: the manifest, the README, the template and the skills Relay ships are in Git.
+# Your own skills are personal — cloud sync only.
 SKILLS/**/SKILL.md
 !SKILLS/_template/SKILL.md
+!SKILLS/inbox/SKILL.md
+!SKILLS/supervision/SKILL.md
 
-# The active brain (machines, paths, project intent)
+# The active brain (machines, paths, project intent), its chunks and its history
 relay-brain.yml
+BRAIN/
+relay-brain-history.yml
 
-# RELAY_LOG working copy. The stub stays in Git so a first run does not hit a
-# missing file. Uncomment to keep the log out of Git entirely:
-# RELAY_LOG.md
+# Journal: one source file per machine (LOG/<host>.md); RELAY_LOG.md is generated
 LOG/
+RELAY_LOG.md
 
-# ─── Generated — rebuilt by npm run bootstrap, never committed ────────────────
+# Proposals awaiting review (the README stays)
+INBOX/*/
+
+# ─── Generated — rebuilt locally, never committed (and never synced) ─────────
 relay-projects.derived.yml
 .relay-state.md
 .relay-state/
 .relay-rag.json
+.relay-supervision/
 .claude/skills/
+.claude/rules/
+TOOLS/supervision/run/
 *.tmp
 *.old
+*.bak-*
 
 # ─── Local environment ───────────────────────────────────────────────────────
 .env

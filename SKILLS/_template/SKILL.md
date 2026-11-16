@@ -1,6 +1,8 @@
 ---
 name: skill-name
 description: "What this skill does and when to reach for it. Keep it near 200 bytes: it is paid for on every session. Quotes are required — this text contains colons."
+# On demand (zero tokens until /skill-name): keep the next line. Native (triggers on its own): remove it.
+disable-model-invocation: true
 ---
 
 # {SKILL_NAME}

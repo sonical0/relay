@@ -1,6 +1,6 @@
 {
   "name": "relay-framework",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "description": "Portable coordination framework for multi-agent AI CLI workflows",
   "license": "MIT",
@@ -8,12 +8,17 @@
     "node": ">=20"
   },
   "scripts": {
-    "bootstrap": "npm install && node TOOLS/skills-link.mjs && node TOOLS/project-scan.mjs && node TOOLS/relay-state.mjs && node TOOLS/rag-index.mjs",
-    "state": "node TOOLS/project-scan.mjs && node TOOLS/relay-state.mjs",
+    "init": "node TOOLS/relay-init.mjs",
+    "bootstrap": "node TOOLS/relay-init.mjs --yes",
+    "state": "node TOOLS/relay-log.mjs && node TOOLS/project-scan.mjs && node TOOLS/rag-index.mjs && node TOOLS/relay-state.mjs",
+    "after-turn": "node TOOLS/relay-after-turn.mjs --scan",
+    "log": "node TOOLS/relay-log.mjs",
+    "brain": "node TOOLS/relay-brain.mjs",
     "index": "node TOOLS/rag-index.mjs",
     "rag": "node TOOLS/rag-query.mjs",
+    "rotate": "node TOOLS/log-rotate.mjs --brain",
     "hooks": "node relay-setup-hook.js",
-    "rotate": "node TOOLS/log-rotate.mjs"
+    "test": "node --test \"TOOLS/tests/*.test.mjs\""
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

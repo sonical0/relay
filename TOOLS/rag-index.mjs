@@ -10,24 +10,23 @@
  * for why.
  *
  * What is indexed, and under which `--type`:
- *   rules    AGENTS.md, CLAUDE.md, GEMINI.md, {AGENT}.md, SETUP.md
- *   brain    relay-brain.yml, relay-projects.derived.yml
- *   log      RELAY_LOG.md and LOG/ARCHIVE/*.md
- *   project  PROJECTS/<name>/**.md   (also tagged with the project name)
- *   skill    SKILLS/**\/SKILL.md
+ *   rules       AGENTS.md, CLAUDE.md, GEMINI.md, {AGENT}.md, SETUP.md, RULES/*.md
+ *   convention  DECISIONS.md — one chunk per `## ` entry (dated decisions and their reasons)
+ *   brain       relay-brain.yml, relay-projects.derived.yml
+ *   log         RELAY_LOG.md and LOG/ARCHIVE/*.md
+ *   project     PROJECTS/<name>/**.md   (also tagged with the project name)
+ *   skill       SKILLS/**\/SKILL.md
  *
- * Re-run it after a batch of edits. `npm run state` does not: indexing walks the
- * whole tree, and the startup hook must stay instant.
+ * The end-of-turn hook (relay-after-turn.mjs) re-runs it only when one of its inputs
+ * changed; the file is not rewritten when the index is identical.
  */
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { tokenize } from './lib/rag.mjs';
-import { writeAtomic } from './lib/atomic.mjs';
+import { writeIfChanged } from './lib/atomic.mjs';
+import { ROOT_DIR as rootDir } from './lib/brain.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.join(__dirname, '..');
 const outPath = path.join(rootDir, '.relay-rag.json');
 
 const args = process.argv.slice(2);
@@ -108,8 +107,42 @@ for (const f of ['AGENTS.md', 'SETUP.md']) {
 for (const e of fs.readdirSync(rootDir)) {
   // {AGENT}.md — uppercase basename, excluding the ones already handled and the READMEs.
   if (!/^[A-Z][A-Z0-9_]*\.md$/.test(e)) continue;
-  if (['AGENTS.md', 'SETUP.md', 'README.md', 'RELAY_LOG.md'].includes(e)) continue;
+  if (['AGENTS.md', 'SETUP.md', 'README.md', 'RELAY_LOG.md', 'DECISIONS.md'].includes(e)) continue;
   addFile(path.join(rootDir, e), 'rules');
+}
+// RULES/*.md — rules scoped to an area, copied into .claude/rules/ by skills-link.mjs.
+const rulesDir = path.join(rootDir, 'RULES');
+if (fs.existsSync(rulesDir)) {
+  for (const f of fs.readdirSync(rulesDir).sort()) {
+    if (f.endsWith('.md')) addFile(path.join(rulesDir, f), 'rules');
+  }
+}
+
+// --- convention: DECISIONS.md, one chunk per `## ` entry ---
+// A decision is read whole or not at all: `###` sub-headings stay inside their entry. An entry
+// longer than MAX_CHUNK_CHARS is still cut on paragraph breaks, under the same title.
+const decisionsPath = path.join(rootDir, 'DECISIONS.md');
+if (fs.existsSync(decisionsPath)) {
+  const text = fs.readFileSync(decisionsPath, 'utf8').replace(/\r\n/g, '\n');
+  const entries = text.split(/^(?=## )/m).filter((s) => s.startsWith('## '));
+  let i = 0;
+  for (const entry of entries) {
+    const title = entry.split('\n')[0].replace(/^## +/, '').trim();
+    const trimmed = entry.trim();
+    const pieces = [];
+    if (trimmed.length <= MAX_CHUNK_CHARS) pieces.push(trimmed);
+    else {
+      let buf = '';
+      for (const para of trimmed.split(/\n{2,}/)) {
+        if (buf && buf.length + para.length > MAX_CHUNK_CHARS) { pieces.push(buf.trim()); buf = ''; }
+        buf += para + '\n\n';
+      }
+      if (buf.trim()) pieces.push(buf.trim());
+    }
+    for (const p of pieces) {
+      chunks.push({ id: `DECISIONS.md#${i++}`, type: 'convention', path: 'DECISIONS.md', title, text: p });
+    }
+  }
 }
 
 // --- brain ---
@@ -182,6 +215,10 @@ if (asJson) {
   }
 }
 
-writeAtomic(outPath, JSON.stringify(index), (t) => JSON.parse(t));
+// The time of day alone does not make a change: an identical index keeps the file and its mtime
+// for the day (rag-query reports the index age from the date).
+const wrote = writeIfChanged(outPath, JSON.stringify(index),
+  { ignore: /T\d{2}:\d{2}:\d{2}(\.\d+)?Z/, validate: (t) => JSON.parse(t) });
 const kb = Math.round(fs.statSync(outPath).size / 1024);
+if (!wrote) console.log('= index unchanged');
 console.log(`→ .relay-rag.json — ${chunks.length} chunks, ${kb} KB`);

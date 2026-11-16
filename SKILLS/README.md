@@ -1,53 +1,42 @@
 # SKILLS — shared agent skills
 
-A skill is a packaged method: what to do, in which order, with which files. It lets
-an agent arriving cold understand immediately how to work on a given task or project.
+A skill is a packaged method: what to do, in which order, with which files. It lets an agent
+arriving cold understand immediately how to work on a given task or project.
 
 ```
 SKILLS/
-├── skills.manifest.json   ← source of truth: which skills exist, how each one loads
+├── skills.manifest.json   ← which skills exist (name → source folder)
 ├── _template/SKILL.md     ← copy this for a new skill
-└── <skill-name>/SKILL.md  ← the skill itself
+├── inbox/                 ← shipped: proposal box and /inbox review
+├── supervision/           ← shipped: multi-agent supervision rules, one file per role
+└── <skill-name>/SKILL.md  ← your own skills (personal: synced, not committed)
 ```
 
 ## The description is the expensive part
 
-A skill's `description:` enters the system prompt **on every session** — about 0.37
-token per byte, measured. The body is only loaded when the skill is invoked.
+A native skill's `description:` enters the system prompt **on every session** — about 0.37
+token per byte, measured. The body only loads when the skill is invoked. Keep the description
+near 200 bytes, **in quotes** (it contains `:`). `TOOLS/relay-state.mjs` alerts once the
+native descriptions exceed 4,000 bytes in total.
 
-So: put all the method detail in the body, and keep the description near 200 bytes,
-just enough for the agent to decide whether this skill is the right one. Write it
-**in quotes** — descriptions contain `:`, and without quotes the frontmatter stops
-being valid YAML for our own tooling.
+## Loading mode: in the frontmatter
 
-`TOOLS/relay-state.mjs` raises an alert once the linked descriptions exceed 4,000
-bytes in total, so this cannot drift unnoticed.
-
-## Two loading modes
-
-Set `load` per skill in `skills.manifest.json`, then run `node TOOLS/skills-link.mjs`.
-
-| `load` | What happens | Use it for |
+| Frontmatter | What happens | Use it for |
 |---|---|---|
-| `native` | Linked into `.claude/skills/`, present in the system prompt, triggers on its own | Methods you would not think to go looking for — a debugging discipline fires when you are already inside the bug |
-| `rag` | No link, absent from the system prompt. Found with `node TOOLS/rag-query.mjs --query "…" --type skill`, read before use | Methods you invoke deliberately, and rare ones |
+| *(nothing)* | Native: in the system prompt, triggers on its own | Methods you would not think to look for — a debugging discipline fires when you are already inside the bug |
+| `disable-model-invocation: true` | Out of the system prompt (zero tokens); `/name` for the user, `SKILLS/<name>/SKILL.md` for the agent; listed by name in the injected state | Everything you invoke deliberately |
+| `paths: ["glob"]` | Native, loaded only when a matching file is touched | Format-specific methods |
 
-`rag` skills are listed by name in the injected startup state (~25 tokens). Without
-that line they would be unreachable: you do not search for what you do not know exists.
-
-A manifest entry can also carry `suggest_if`, a regex tested against a project's file
-and dependency names. On a match, the skill is named in that project's state block —
-the only mechanism that actually surfaces an on-demand skill at the right moment. A
-routing skill does not work: tried and measured at 0 auto-triggers out of 3 projects.
-
-**Rollback**: `node TOOLS/skills-all-native.mjs && node TOOLS/skills-link.mjs` puts
-everything back to native and prints what it costs per session.
+Rollback for an on-demand skill: remove the line. A routing skill that suggests the others
+does not work: measured at 0 auto-triggers out of 3 (DECISIONS, 2026-09-15).
 
 ## Creating a skill
 
-1. `cp -r SKILLS/_template SKILLS/<name>` and fill in `SKILL.md`
-2. Add an entry to `skills.manifest.json` with `load` and a one-line `why`
-3. `node TOOLS/skills-link.mjs` (then `node TOOLS/rag-index.mjs` for a `rag` skill)
+1. `cp -r SKILLS/_template SKILLS/<name>` and fill in `SKILL.md`.
+2. Add `{ "name": "<name>", "src": "<name>", "why": "…" }` to `skills.manifest.json`.
+3. `node TOOLS/skills-link.mjs` (the setup hook also runs it at every start).
 
-Non-Claude agents do not read `.claude/skills/`. Point them at
-`SKILLS/<name>/SKILL.md` by path.
+Past ~12 KB, move maintainer documentation to a sibling `MAINTENANCE.md`: after compaction
+only 5,000 tokens per invoked skill are re-injected. Third-party skills: `RULES/skills.md`.
+
+Non-Claude agents do not read `.claude/skills/`: point them at `SKILLS/<name>/SKILL.md`.

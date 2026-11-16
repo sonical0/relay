@@ -14,13 +14,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import { writeAtomic } from './lib/atomic.mjs';
+import { ROOT_DIR as rootDir, BRAIN_PATH as brainPath } from './lib/brain.mjs';
 
-const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const templateDir = path.join(rootDir, 'PROJECTS', '_template');
-const brainPath = path.join(rootDir, 'relay-brain.yml');
 
 const args = process.argv.slice(2);
 const name = args.find((a) => !a.startsWith('--'));
@@ -76,7 +74,7 @@ if (register) {
       console.log(`. ${name} already registered in relay-brain.yml`);
     } else {
       const lines = raw.split('\n');
-      const at = lines.findIndex((l) => /^projects: *$/.test(l));
+      const at = lines.findIndex((l) => /^projects:\s*$/.test(l));
       const block = [
         `  ${name}:`,
         `    path: "{{relay_root}}/PROJECTS/${name}"`,
@@ -103,4 +101,4 @@ if (register) {
 console.log('\nNext:');
 console.log(`  1. fill in PROJECTS/${name}/AGENTS.md (role split, structure, local conventions)`);
 console.log('  2. npm run state       (refresh derived status and injected state)');
-console.log('  3. log the start in RELAY_LOG.md');
+console.log('  3. log the start at the top of LOG/<host>.md (node TOOLS/relay-log.mjs --where)');
