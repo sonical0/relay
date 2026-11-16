@@ -1,45 +1,42 @@
-# SKILLS — Compétences partagées Relay
+# SKILLS — shared agent skills
 
-Tables de routage de commandes et modes, partagées entre agents CLI.
-
-Un SKILL définit les modes/commandes disponibles pour un projet, quand les utiliser, et quels fichiers charger. Il permet à un agent d'arriver à froid et de comprendre immédiatement comment travailler sur ce projet.
-
-## Structure
+A skill is a packaged method: what to do, in which order, with which files. It lets an agent
+arriving cold understand immediately how to work on a given task or project.
 
 ```
 SKILLS/
-├── _template/
-│   └── SKILL.md                  ← Template à copier pour un nouveau projet
-├── {nom-projet}/
-│   └── SKILL.md                  ← Skill du projet (cloud-only)
-├── obsidian/                     ← Intégration Obsidian CLI (cloud-only)
-│   └── obsidian-cli/SKILL.md
-└── slides/                       ← Génération de présentations (cloud-only)
-    └── project-to-pptx/SKILL.md
+├── skills.manifest.json   ← which skills exist (name → source folder)
+├── _template/SKILL.md     ← copy this for a new skill
+├── inbox/                 ← shipped: proposal box and /inbox review
+├── supervision/           ← shipped: multi-agent supervision rules, one file per role
+└── <skill-name>/SKILL.md  ← your own skills (personal: synced, not committed)
 ```
 
-## Créer un skill
+## The description is the expensive part
 
-1. Copier `SKILLS/_template/SKILL.md` → `SKILLS/{nom-projet}/SKILL.md`
-2. Remplir la routing table, le chargement de contexte, et les règles de délégation
-3. Référencer depuis `PROJECTS/{nom-projet}/AGENTS.md` si nécessaire
+A native skill's `description:` enters the system prompt **on every session** — about 0.37
+token per byte, measured. The body only loads when the skill is invoked. Keep the description
+near 200 bytes, **in quotes** (it contains `:`). `TOOLS/relay-state.mjs` alerts once the
+native descriptions exceed 4,000 bytes in total.
 
-## Contenu type d'un SKILL.md
+## Loading mode: in the frontmatter
 
-- **Routing table** : commandes → agent + action
-- **Chargement contexte** : quels fichiers lire par mode
-- **Auto-détection** : patterns qui déclenchent un mode automatiquement
-- **Sous-agents** : quand déléguer (volume > 3, batch, spéculatif)
+| Frontmatter | What happens | Use it for |
+|---|---|---|
+| *(nothing)* | Native: in the system prompt, triggers on its own | Methods you would not think to look for — a debugging discipline fires when you are already inside the bug |
+| `disable-model-invocation: true` | Out of the system prompt (zero tokens); `/name` for the user, `SKILLS/<name>/SKILL.md` for the agent; listed by name in the injected state | Everything you invoke deliberately |
+| `paths: ["glob"]` | Native, loaded only when a matching file is touched | Format-specific methods |
 
-## Skills inclus (cloud-only)
+Rollback for an on-demand skill: remove the line. A routing skill that suggests the others
+does not work: measured at 0 auto-triggers out of 3 (DECISIONS, 2026-09-15).
 
-| Skill | Dossier | Description |
-|-------|---------|-------------|
-| Obsidian CLI | `obsidian/obsidian-cli/` | Interaction avec une instance Obsidian via CLI |
-| Slides PPTX | `slides/project-to-pptx/` | Transformer README/docs → présentation PPTX |
-| {votre projet} | `{nom}/` | (créer via `init-relay-project.mjs`) |
+## Creating a skill
 
-## Données personnelles
+1. `cp -r SKILLS/_template SKILLS/<name>` and fill in `SKILL.md`.
+2. Add `{ "name": "<name>", "src": "<name>", "why": "…" }` to `skills.manifest.json`.
+3. `node TOOLS/skills-link.mjs` (the setup hook also runs it at every start).
 
-Les SKILL.md réels sont **cloud-only** — non committés en git.
-Seul `_template/SKILL.md` est en git.
+Past ~12 KB, move maintainer documentation to a sibling `MAINTENANCE.md`: after compaction
+only 5,000 tokens per invoked skill are re-injected. Third-party skills: `RULES/skills.md`.
+
+Non-Claude agents do not read `.claude/skills/`: point them at `SKILLS/<name>/SKILL.md`.

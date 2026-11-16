@@ -1,2 +1,2 @@
-@../../ANTIGRAVITY.md
+@../../GEMINI.md
 @./AGENTS.md

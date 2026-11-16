@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supervision managers</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --ink: #1b1f24; --muted: #6a737d; --line: #e1e4e8; --grid: #eef0f2;
+  --ok: #1a7f37; --work: #0969da; --warn: #9a6700; --err: #cf222e; --idle: #8c959f; --review: #8250df;
+  --track: #e6e9ed; --hover: #f0f3f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --card: #161b22; --ink: #e6edf3; --muted: #8b949e; --line: #30363d; --grid: #21262d;
+    --ok: #3fb950; --work: #58a6ff; --warn: #d29922; --err: #f85149; --idle: #6e7681; --review: #a371f7;
+    --track: #21262d; --hover: #1c2129; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 16px; display: grid; gap: 8px; }
+.hrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h1 { font-size: 16px; margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+main { padding: 12px 16px 40px; display: grid; gap: 12px; max-width: 1400px; }
+.badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.badge.err { color: var(--err); } .badge.warn { color: var(--warn); } .badge.ok { color: var(--ok); }
+.quota { display: flex; gap: 14px; flex-wrap: wrap; }
+.meter { flex: 1 1 180px; min-width: 160px; }
+.meter .lbl { display: flex; justify-content: space-between; font-size: 12px; gap: 8px; }
+.bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 3px; }
+.bar > div { height: 100%; border-radius: 3px; transition: width .4s; }
+/* objectif courant (sup.py objectif) : barre d'avancement, toujours visible dans l'en-tête */
+.obj { display: grid; gap: 4px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.obj .top { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; font-size: 13px; }
+.obj .top .pct { font-variant-numeric: tabular-nums; }
+.obj .eta { margin-left: auto; font-size: 12px; color: var(--muted); }
+.obj .bar { height: 8px; margin-top: 0; }
+.obj .left { display: flex; gap: 3px; flex-wrap: wrap; font-size: 11px; }
+.obj .left span { padding: 0 4px; border-radius: 4px; border: 1px solid var(--line); text-transform: none; letter-spacing: 0; }
+#objective:empty { display: none; }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+/* Tickets en cours : colonne de droite sur grand écran (l'espace libre à côté de la vue), en bas sinon. */
+.tix { padding: 10px 12px; } .tix h3 { margin: 0 0 6px; font-size: 14px; }
+.tix .t { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
+.tix .t:first-of-type { border-top: 0; }
+.tix .keys a, .tix .keys code { font-weight: 700; margin-right: 6px; }
+@media (min-width: 1500px) {
+  main { max-width: 1780px; grid-template-columns: minmax(0, 1fr) 340px; }
+  main > * { grid-column: 1; }
+  main > .tix { grid-column: 2; grid-row: 1 / span 20; align-self: start; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+}
+.kpis { display: flex; gap: 6px 14px; flex-wrap: wrap; padding: 8px 12px; font-size: 13px; }
+.kpis b { font-variant-numeric: tabular-nums; }
+/* vue d'ensemble : une ligne par manager */
+.ov { display: grid; }
+.ovr { display: grid; grid-template-columns: 34px minmax(0, 1fr) 96px auto; gap: 4px 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line); cursor: pointer; }
+.ovr:first-child { border-top: 0; }
+.ovr:hover { background: var(--hover); }
+.letter { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; color: #fff; background: var(--idle); }
+.l-working { background: var(--work); } .l-done { background: var(--ok); } .l-blocked { background: var(--err); }
+.l-review { background: var(--review); } .l-waiting { background: var(--warn); }
+.ovmain { min-width: 0; }
+.ovtask { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ovsub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prog { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.wdots { display: flex; gap: 3px; justify-content: flex-end; }
+.wdot { font-size: 10px; font-weight: 700; padding: 1px 4px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.wdot.working { color: var(--work); border-color: var(--work); } .wdot.done { color: var(--ok); border-color: var(--ok); }
+.wdot.unver { color: var(--err); border-color: var(--err); } .wdot.blocked { color: var(--err); border-color: var(--err); }
+.seen-warn { color: var(--warn); } .seen-err { color: var(--err); font-weight: 700; }
+/* file de fusion en pipeline */
+.pipe { display: flex; align-items: center; gap: 6px; padding: 8px 12px; flex-wrap: wrap; font-size: 13px; }
+.step { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  border: 2px solid var(--idle); color: var(--muted); background: var(--card); }
+.step.merged { background: var(--ok); border-color: var(--ok); color: #fff; }
+.step.ready { border-color: var(--work); color: var(--work); }
+.step.blocked { background: var(--err); border-color: var(--err); color: #fff; }
+.alerts { display: grid; gap: 6px; }
+.alert { padding: 7px 12px; border-radius: 6px; border-left: 4px solid; background: var(--card); font-size: 13px; overflow-wrap: anywhere; }
+.alert.error { border-color: var(--err); } .alert.warn { border-color: var(--warn); }
+.alert.error::before { content: "⛔ "; } .alert.warn::before { content: "⚠ "; }
+details.sec > summary, details.card > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: "▸"; color: var(--muted); font-size: 12px; transition: transform .15s; }
+details[open] > summary::before { transform: rotate(90deg); }
+details.sec > summary { font-weight: 700; font-size: 14px; padding: 4px 0; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+details.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; border-left: 4px solid var(--idle); }
+details.card > summary { font-weight: 700; }
+details.card > summary > .st { margin-left: auto; }
+details.card[open] > summary { margin-bottom: 6px; }
+.b-working { border-left-color: var(--work) !important; } .b-done { border-left-color: var(--ok) !important; } .b-blocked { border-left-color: var(--err) !important; }
+.b-review { border-left-color: var(--review) !important; } .b-waiting { border-left-color: var(--warn) !important; }
+.tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.tag.push { color: var(--ok); border-color: var(--ok); } .tag.stop { color: var(--err); border-color: var(--err); }
+.st { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.s-working, .s-doing, .s-ready { color: var(--work); } .s-done, .s-merged { color: var(--ok); } .s-blocked, .s-refused { color: var(--err); }
+.s-review { color: var(--review); } .s-waiting, .s-open { color: var(--warn); } .s-idle, .s-todo { color: var(--idle); }
+.kv { margin: 3px 0; display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 6px; }
+.kv > b { color: var(--muted); font-weight: 500; }
+.chart { position: relative; margin: 6px 0 2px; }
+.chart svg { display: block; width: 100%; height: 72px; }
+.chart .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 7px; font-size: 12px; white-space: nowrap; display: none; box-shadow: 0 2px 6px rgba(0,0,0,.12); top: -24px; }
+.workers { display: grid; gap: 4px; margin-top: 6px; }
+.w { display: grid; grid-template-columns: 28px 52px 84px minmax(0, 1fr); gap: 6px; font-size: 13px; padding: 4px 6px; border-radius: 4px; background: var(--bg); align-items: center; }
+.files { max-height: 120px; overflow: auto; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+button { font: inherit; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.go { color: var(--ok); border-color: var(--ok); } button.danger { color: var(--err); border-color: var(--err); }
+button.armed { background: var(--err); color: #fff; } button.go.armed { background: var(--ok); color: #fff; }
+code { font: 12px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+.files code { display: inline-block; margin: 0 6px 2px 0; }
+.files code.undeclared { color: var(--warn); font-weight: 700; } .files code.bad { color: var(--err); font-weight: 700; }
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 13px; }
+th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.scroll { max-height: 360px; overflow: auto; border-radius: 10px; }
+.lvl-warn { color: var(--warn); } .lvl-error { color: var(--err); }
+select { font: inherit; font-size: 12px; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+/* `hidden` doit gagner sur les `display` posés plus haut (main est en grid) */
+[hidden] { display: none !important; }
+/* onglets */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 -16px -10px; padding: 0 16px; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 10px; font-size: 13px; color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--work); }
+/* conversation du superviseur */
+#view-sup { display: flex; flex-direction: column; height: calc(100vh - var(--hdr, 180px)); }
+#view-sup[hidden] { display: none; }
+.chat { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: min(920px, 100%); min-width: 0; border-radius: 10px; padding: 8px 12px; overflow-wrap: anywhere; }
+.md table, .md pre { display: block; max-width: 100%; overflow-x: auto; }
+.msg.user { align-self: flex-end; background: color-mix(in srgb, var(--work) 14%, var(--card)); border: 1px solid color-mix(in srgb, var(--work) 30%, var(--line)); white-space: pre-wrap; }
+.msg.assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--line); }
+.msg .who { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+details.peer { align-self: flex-start; max-width: min(920px, 100%); font-size: 12px; color: var(--muted); border-left: 2px solid var(--line); padding: 1px 0 1px 8px; }
+details.peer summary { cursor: pointer; list-style: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+details.peer summary::before { content: "▸ "; }
+details.peer[open] summary::before { content: "▾ "; transform: none; }
+details.peer .pw { font-weight: 600; }
+details.peer[open] { color: var(--ink); background: var(--bg); border-radius: 0 6px 6px 0; padding: 4px 10px; }
+details.peer[open] summary { white-space: normal; }
+.chatbar { display: flex; gap: 12px; align-items: center; padding: 6px 16px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.md :is(p, ul, ol, table, pre, blockquote) { margin: 6px 0; }
+.md h1, .md h2, .md h3 { font-size: 15px; margin: 10px 0 4px; }
+.md table { width: auto; font-size: 13px; }
+.md th, .md td { padding: 3px 8px; }
+.md pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; overflow-x: auto; }
+.md code { background: var(--bg); padding: 0 3px; border-radius: 3px; }
+.md pre code { background: none; padding: 0; }
+.tools { align-self: flex-start; font-size: 12px; color: var(--muted); }
+.tools summary { cursor: pointer; list-style: none; }
+.tools summary::before { content: "▸ "; }
+.tools[open] summary::before { content: "▾ "; transform: none; }
+.qcard { max-width: min(920px, 100%); }
+.tools li { margin: 1px 0; }
+.qcard { align-self: flex-start; max-width: 920px; background: var(--card); border: 2px solid var(--warn); border-radius: 10px; padding: 10px 12px; }
+.qcard.done { border-color: var(--line); }
+.qcard .q { margin: 8px 0 4px; font-weight: 600; }
+.qcard .opt { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start; margin: 4px 0; }
+.qcard .opt .d { grid-column: 2; font-size: 12px; color: var(--muted); }
+.qcard .ans { margin-top: 6px; font-size: 13px; color: var(--ok); white-space: pre-wrap; }
+.composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--bg); }
+.composer textarea { flex: 1; font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; }
+.permbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 16px 6px; padding: 5px 10px; font-size: 13px;
+  border: 1px solid var(--warn); border-radius: 8px; background: var(--card); }
+/* charge du poste, façon Gestionnaire des tâches */
+.pc { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.pcm { padding: 4px 10px; text-align: right; border-left: 1px solid var(--line); position: relative; }
+.pcm:first-child { border-left: 0; }
+.pcm .v { font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.pcm .l { font-size: 12px; color: var(--muted); }
+.pcm svg { position: absolute; left: 6px; bottom: 4px; width: 45%; height: 26px; }
+.pcm.hot { background: color-mix(in srgb, var(--err) 12%, transparent); }
+.pcm.warm { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+/* invites en attente de l'utilisateur */
+.waits { display: grid; gap: 8px; }
+.wait { background: var(--card); border: 2px solid var(--warn); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.wait h3 { margin: 0; font-size: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.wait pre { margin: 0; max-height: 220px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font: 12px/1.35 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wait .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.wait input { flex: 1 1 160px; min-width: 0; font: inherit; font-size: 13px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.tag.wait-tag { color: var(--warn); border-color: var(--warn); }
+.letter.pulse { box-shadow: 0 0 0 3px var(--warn); }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; z-index: 10; max-width: calc(100% - 32px); }
+.empty { padding: 10px 12px; }
+@media (max-width: 520px) {
+  .ovr { grid-template-columns: 34px minmax(0, 1fr) 70px; }
+  .ovr .wdots { grid-column: 2 / -1; justify-content: flex-start; }
+  .grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <h1>Supervision</h1>
+    <span id="project" class="muted small"></span>
+    <span id="badge"></span>
+    <span id="clock" class="muted small" style="margin-left:auto"></span>
+    <button id="clo-open" onclick="clotureOpen()" title="Compte rendu, ménage, sauvegarde : rien ne part sans validation">Clôturer la journée</button>
+  </div>
+  <div id="objective"></div>
+  <div id="clo-banner"></div>
+  <div class="quota" id="quota"></div>
+  <div class="pc" id="pc"></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-overview" aria-selected="true" onclick="showTab('overview')">Vue d'ensemble</button>
+    <button role="tab" id="tab-sup" aria-selected="false" onclick="showTab('sup')">Superviseur <span id="sup-badge"></span></button>
+    <button role="tab" id="tab-hist" aria-selected="false" onclick="showTab('hist')">Historique</button>
+  </nav>
+</header>
+<div id="clo-panel" class="panel" hidden style="padding:10px 14px;margin:8px 16px"></div>
+<section id="view-sup" hidden>
+  <div class="chatbar">
+    <label><input type="checkbox" id="show-peers" onchange="togglePeers(this.checked)"> Messages des agents</label>
+    <label><input type="checkbox" id="show-tools" onchange="toggleTools(this.checked)"> Actions du superviseur</label>
+  </div>
+  <div id="chat" class="chat" aria-live="polite"></div>
+  <div id="chat-wait"></div>
+  <div class="composer">
+    <textarea id="chat-input" rows="2" placeholder="Écrire au superviseur… (Entrée pour envoyer, Maj+Entrée pour aller à la ligne)"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();chatSend()}"></textarea>
+    <button class="go" onclick="chatSend()">Envoyer</button>
+  </div>
+</section>
+<main id="view-overview">
+  <div class="waits" id="waits"></div>
+  <div class="panel kpis" id="kpis"></div>
+  <div class="panel ov" id="overview"></div>
+  <div class="panel pipe" id="pipe"></div>
+  <div class="alerts" id="alerts"></div>
+  <details class="sec" id="sec-managers" open><summary>Détail des managers</summary><div class="grid" id="managers"></div></details>
+  <details class="sec" id="sec-tasks" open><summary>Tâches <span class="muted small" id="n-tasks"></span></summary>
+    <table><thead><tr><th>#</th><th>Tâche</th><th>Mgr</th><th>Statut</th><th>Note</th></tr></thead><tbody id="tasks"></tbody></table></details>
+  <details class="sec" id="sec-merges"><summary>File de fusion vers <code>dev</code> <span class="muted small" id="n-merges"></span></summary>
+    <table><thead><tr><th>#</th><th>Branche</th><th>SHA</th><th>Mgr</th><th>Statut</th><th>Note</th></tr></thead><tbody id="merges"></tbody></table></details>
+  <details class="sec" id="sec-requests"><summary>Demandes à l'intégrateur <span class="muted small" id="n-requests"></span></summary>
+    <table><thead><tr><th>#</th><th>De</th><th>Demande</th><th>Statut</th></tr></thead><tbody id="requests"></tbody></table></details>
+  <details class="sec" id="sec-sessions"><summary>Sessions Claude <span class="muted small" id="n-sessions"></span></summary>
+    <table><thead><tr><th>Qui</th><th>Modèle</th><th>Contexte</th><th>Coût estimé</th><th>Vu</th></tr></thead><tbody id="sessions"></tbody></table></details>
+  <details class="sec" id="sec-events" open><summary>Journal
+    <select id="evfilter" onclick="event.stopPropagation()"><option value="">tout</option><option value="error">alertes</option></select></summary>
+    <div class="scroll"><table><tbody id="events"></tbody></table></div></details>
+  <aside class="panel tix" id="tickets"></aside>
+</main>
+<div id="toast" role="status"></div>
+<script>
+const TOKEN = "__SUP_TOKEN__";
+const TRAIN_MODE = true;  // fusions par train (PROTOCOLE.md) : une seule validation, la question de D
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ago = (now, t) => { const d = Math.max(0, now - t); return d < 60 ? `${d} s` : d < 3600 ? `${Math.floor(d/60)} min` : `${Math.floor(d/3600)} h`; };
+const hm = t => new Date(t * 1000).toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"});
+const LBL = {idle:"inactif", working:"en cours", waiting:"en attente", review:"vérification", blocked:"bloqué", done:"terminé",
+             todo:"à faire", doing:"en cours", open:"ouverte", refused:"refusée", ready:"prête", merged:"fusionnée"};
+const level = p => p >= 90 ? "err" : p >= 70 ? "warn" : "ok";
+const glob = g => new RegExp("^" + g.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$");
+
+// Sections et cartes ouvertes : mémorisées par navigateur (simple confort, facultatif).
+const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+let openCards = store.get("sup.open", null);
+document.querySelectorAll("details.sec").forEach(d => {
+  const saved = store.get("sup.sec." + d.id, null);
+  if (saved !== null) d.open = saved;
+  d.addEventListener("toggle", () => store.set("sup.sec." + d.id, d.open));
+});
+document.getElementById("evfilter").addEventListener("change", () => render(last, true));
+
+function toast(msg) {
+  const t = document.getElementById("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 4000);
+}
+
+function meter(label, q) {
+  if (!q) return `<div class="meter"><div class="lbl"><span>Quota ${label}</span><span class="muted">en attente</span></div><div class="bar"></div></div>`;
+  const p = q.used_percentage, reset = q.resets_at ? new Date(q.resets_at * 1000) : null;
+  const when = reset ? reset.toLocaleString("fr-FR", label === "5 h" ? {hour:"2-digit", minute:"2-digit"} : {weekday:"short", hour:"2-digit", minute:"2-digit"}) : "";
+  return `<div class="meter" title="Quota ${label} : ${p.toFixed(1)} % utilisé">
+    <div class="lbl"><span>Quota ${label} · <b>${(100 - p).toFixed(0)} % dispo</b></span><span class="muted">${when ? "reset " + esc(when) : ""}</span></div>
+    <div class="bar" role="meter" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100"><div style="width:${Math.min(100, p)}%;background:var(--${level(p)})"></div></div></div>`;
+}
+
+const seenCls = (m, now) => { const d = now - m.updated;
+  return !["working", "review"].includes(m.status) ? "" : d > 900 ? "seen-err" : d > 300 ? "seen-warn" : ""; };
+
+function wdots(m) {
+  return Object.values(m.workers).sort((a, b) => a.id.localeCompare(b.id)).map(w => {
+    const cls = w.status === "done" ? (w.verified ? "done" : "unver") : w.status;
+    const model = w.model && w.model !== "opus" ? w.model[0].toUpperCase() : "";
+    return `<span class="wdot ${cls}" title="${esc(w.id)} · ${esc(w.model || "opus")} · ${LBL[w.status] || w.status}${w.status === "done" ? (w.verified ? " · vérifié" : " · NON vérifié") : ""} — ${esc(w.task)}">${esc(w.id)}${model ? "·" + model : ""}</span>`;
+  }).join("");
+}
+
+const waitingOf = (s, id) => (s.agents || {})[id]?.waiting ? s.agents[id] : null;
+
+// Panneaux qui attendent l'utilisateur : la question telle qu'affichée, et de quoi y répondre sans changer de panneau.
+function waits(ms, s) {
+  const who = [{id: "S", name: "Superviseur"}, ...ms.map(m => ({id: m.id, name: `Manager ${m.id}`}))];
+  return who.filter(m => waitingOf(s, m.id)).map(m => {
+    const a = waitingOf(s, m.id);
+    const choice = c => `<button class="${/^(non|no|annuler|stop)/i.test(c.label) ? "danger" : "go"}" data-lbl="${esc(c.label)}" onclick='answerPrompt(this, "${m.id}", ${JSON.stringify({choice: c.id, label: c.label}).replace(/'/g, "&#39;")})'>${esc(c.label)}</button>`;
+    const key = (k, label, cls = "") => `<button class="${cls}" data-lbl="${esc(label)}" onclick='answerPrompt(this, "${m.id}", ${JSON.stringify({key: k, label})})'>${esc(label)}</button>`;
+    return `<div class="wait">
+      <h3>⏳ ${esc(m.name)} attend ta réponse ${a.since ? `<span class="muted small">depuis ${ago(s.now, a.since)}</span>` : ""}</h3>
+      ${a.reason ? `<div>${esc(a.reason)}</div>` : ""}
+      ${a.screen ? `<pre>${esc(a.screen)}</pre>` : ""}
+      ${a.choices.length ? `<div class="row">${a.choices.map(choice).join("")}</div>`
+        : `<div class="row">${key("1", "1 · Oui", "go")}${key("2", "2")}${key("3", "3")}${key("escape", "Échap · Non", "danger")}${key("enter", "Entrée")}</div>`}
+      <div class="row"><input id="ans-${m.id}" placeholder="Réponse libre (${esc(m.name)})…" onkeydown="if(event.key==='Enter'){answerText('${m.id}')}">
+        <button onclick="answerText('${m.id}')">Envoyer</button></div>
+    </div>`;
+  }).join("");
+}
+
+async function sendCommand(payload) {
+  try {
+    const r = await fetch("/api/command", {method: "POST", headers: {"Content-Type": "application/json", "X-Sup-Token": TOKEN},
+      body: JSON.stringify(payload)});
+    const j = await r.json();
+    toast(r.ok ? (j.result ? `Envoyé au Manager ${payload.id}.` : `Enregistré, mais le panneau du Manager ${payload.id} est injoignable.`) : `Refusé : ${j.error}`);
+  } catch { toast("Serveur injoignable."); }
+  tick(true);
+}
+
+async function answerPrompt(btn, id, payload) {
+  const k = "ans" + id + JSON.stringify(payload);
+  if (armed !== k) {  // deux clics, comme les autres boutons : une approbation ne part jamais par erreur
+    document.querySelectorAll("button.armed").forEach(b => { b.classList.remove("armed"); b.textContent = b.dataset.lbl; });
+    armed = k; btn.classList.add("armed"); btn.textContent = "Confirmer ?";
+    setTimeout(() => { if (armed === k) { armed = null; tick(true); } }, 4000);
+    return;
+  }
+  armed = null; btn.disabled = true;
+  sendCommand({action: "answer", id, ...payload});
+}
+
+function answerText(id) {
+  const el = document.getElementById("ans-" + id), text = el.value.trim();
+  if (!text) return;
+  el.value = ""; el.blur();
+  sendCommand({action: "answer", id, text});
+}
+
+// Avancement du check en cours (si son détenteur a donné le journal : sup.py lock take X --log …).
+function checkText(cl) {
+  const p = cl && cl.progress;
+  if (!p) return "";
+  const tests = p.total ? `tests ${p.ok + p.ko}/${p.total} (${p.pct} %)` : `${p.ok + p.ko} tests passés`;
+  return `${tests}${p.ko ? ` · <b class="lvl-error">${p.ko} échec(s)</b>` : ""} · étape ${p.stage_n}/${p.stages} ${esc(p.stage)}${p.built ? " · build terminé" : ""}`;
+}
+function checkBar(s, id) {
+  const cl = s.check_lock;
+  if (!cl || !cl.owner.startsWith(`Manager ${id} `)) return "";
+  const p = cl.progress;
+  // Barre = part des tests passés ; au build (étape 5), les tests sont finis : la barre reste pleine.
+  const pct = p ? (p.stage === "build" ? 100 : p.pct ?? Math.round(100 * (p.stage_n - 1) / p.stages)) : 0;
+  return `<div class="small" style="margin-top:3px">🔒 check depuis ${ago(s.now, cl.since)}${p ? " · " + checkText(cl) : ""}
+    ${p ? `<div class="bar" style="max-width:260px"><div style="width:${pct}%;background:var(--${p.ko ? "err" : "work"})"></div></div>` : ""}</div>`;
+}
+
+// Contexte occupé par la session (statusline) et relance à neuf, autorisée seulement quand tout est stable.
+function ctxOf(s, id) {
+  const who = id === "S" ? "superviseur" : id;
+  const v = Object.values(s.sessions || {}).filter(x => x.who === who).sort((a, b) => b.t - a.t)[0];
+  return v && v.ctx != null ? Math.round(v.ctx) : null;
+}
+function ctxTag(s, id) {
+  const c = ctxOf(s, id);
+  if (c == null) return "";
+  const col = c >= 80 ? "err" : c >= 60 ? "warn" : "muted";
+  return `<span class="tag" style="color:var(--${col});border-color:var(--${col === "muted" ? "line" : col})" title="Contexte occupé par la session">ctx ${c} %</span>`;
+}
+function freshBtn(s, id) {
+  if (s.backend === "none") return "";  // la relance à neuf tape /clear dans le terminal de l'agent : exige wmux
+  const why = (s.fresh || {})[id] || ["état inconnu"];
+  const c = ctxOf(s, id);
+  const lbl = "Relancer à neuf";
+  return why.length
+    ? `<button disabled style="opacity:.4;cursor:default" title="Impossible maintenant : ${esc(why.join(" ; "))}">${lbl}</button>`
+    : `<button class="${c != null && c >= 60 ? "danger" : ""}" data-lbl="${lbl}" title="/clear puis reprise par la fiche Relay"
+        onclick="event.stopPropagation(); if (armOr(this, 'fresh${id}')) sendCommand({action: 'fresh', id: '${id}'})">${lbl}</button>`;
+}
+
+// Ligne du superviseur : son état wmux, et un champ pour lui écrire sans changer de panneau.
+function supRow(s) {
+  const a = (s.agents || {}).S, st = a ? a.state : "unknown";
+  const lbl = a && a.waiting ? '<span class="tag wait-tag">⏳ attend ta réponse</span>' : `<span class="st s-${st === "working" ? "working" : "idle"}">${st === "working" ? "en cours" : "disponible"}</span>`;
+  return `<div class="ovr" style="cursor:default">
+    <div class="letter ${st === "working" ? "l-working" : ""}${a && a.waiting ? " pulse" : ""}" style="${st === "working" ? "" : "background:var(--review)"}">S</div>
+    <div class="ovmain"><div class="ovtask">${lbl} Superviseur ${ctxTag(s, "S")} ${freshBtn(s, "S")}</div>${checkBar(s, "S")}
+      <div class="row" style="display:flex;gap:6px;margin-top:4px" onclick="event.stopPropagation()">
+        <input id="ans-S-msg" placeholder="Message au superviseur…" style="flex:1;min-width:0;font:inherit;font-size:13px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)"
+          onkeydown="if(event.key==='Enter'){msgSup()}"><button onclick="msgSup()">Envoyer</button></div></div>
+    <div></div><div></div></div>`;
+}
+function msgSup() {
+  const el = document.getElementById("ans-S-msg"), text = el.value.trim();
+  if (!text) return;
+  el.value = ""; el.blur();
+  sendCommand({action: "answer", id: "S", text: "[Tableau de bord — message de l'utilisateur] " + text});
+}
+
+// Feu vert de fusion : seulement pour une branche « prête » ; une fois donné, le bouton reste « transmis ».
+function mergeBtn(m) {
+  // Depuis le train de fusion, l'utilisateur valide une seule fois : la question de D (encadré « attend ta réponse »).
+  // Le bouton de feu vert par branche ferait doublon : il n'est plus affiché.
+  if (TRAIN_MODE || m.status !== "ready") return "";
+  if (m.go) return ` <span class="tag push" title="transmis au superviseur à ${hm(m.go)}">feu vert transmis ✓</span>`;
+  return ` <button class="go" data-lbl="Feu vert fusion" onclick='event.stopPropagation(); mergeGo(this, ${JSON.stringify(m.branch)})'>Feu vert fusion</button>`;
+}
+
+async function mergeGo(btn, branch) {
+  const k = "merge" + branch;
+  if (armed !== k) {
+    document.querySelectorAll("button.armed").forEach(b => { b.classList.remove("armed"); b.textContent = b.dataset.lbl; });
+    armed = k; btn.classList.add("armed"); btn.textContent = "Confirmer ?";
+    setTimeout(() => { if (armed === k) { armed = null; tick(true); } }, 4000);
+    return;
+  }
+  armed = null; btn.disabled = true; btn.textContent = "envoyé ✓";
+  try {
+    const r = await fetch("/api/command", {method: "POST", headers: {"Content-Type": "application/json", "X-Sup-Token": TOKEN},
+      body: JSON.stringify({action: "merge-go", branch})});
+    const j = await r.json();
+    toast(r.ok ? (j.result ? `Feu vert transmis au superviseur pour ${branch}.` : "Superviseur injoignable.") : `Refusé : ${j.error}`);
+  } catch { toast("Serveur injoignable."); }
+  setTimeout(() => tick(true), 1500);
+}
+
+// Pré-revue déterministe (lot 3.3) : ✓ / ⚠ + motifs ; « Relire » envoie au superviseur une demande de relecture.
+function preBadge(p) {
+  if (!p) return "";
+  const why = [...(p.reasons || []), ...(p.infos || []).map(x => "· " + x)].join("\n");
+  return ` <span class="tag ${p.ok ? "push" : "stop"}" title="${esc(why)}">pré-revue ${p.ok ? "✓" : "⚠ " + (p.reasons || []).length}</span>`;
+}
+function preReasons(p) {
+  return p && !p.ok ? `<div class="small" style="color:var(--warn,#b45309)">${(p.reasons || []).map(r => "⚠ " + esc(r)).join("<br>")}</div>` : "";
+}
+function reviewBtn(id, branch) {
+  return ` <button data-lbl="Relire" title="demande au superviseur une relecture par un sous-agent (lecture seule)"
+    onclick='event.stopPropagation(); reviewAsk(this, ${JSON.stringify(id || "")}, ${JSON.stringify(branch || "")})'>Relire</button>`;
+}
+async function reviewAsk(btn, id, branch) {
+  btn.disabled = true; btn.textContent = "envoyé ✓";
+  try {
+    const r = await fetch("/api/command", {method: "POST", headers: {"Content-Type": "application/json", "X-Sup-Token": TOKEN},
+      body: JSON.stringify({action: "review", id, branch})});
+    const j = await r.json();
+    toast(r.ok ? (j.result ? `Relecture demandée au superviseur (${branch || id}).` : "Superviseur injoignable.") : `Refusé : ${j.error}`);
+  } catch { toast("Serveur injoignable."); }
+  setTimeout(() => tick(true), 1500);
+}
+
+function overview(ms, s) {
+  return supRow(s) + ms.map(m => `<div class="ovr" onclick="focusCard('${m.id}')" title="Voir le détail du manager ${m.id}">
+    <div class="letter l-${m.status}${waitingOf(s, m.id) ? " pulse" : ""}">${esc(m.id)}</div>
+    <div class="ovmain">
+      <div class="ovtask">${waitingOf(s, m.id) ? '<span class="tag wait-tag">⏳ attend ta réponse</span> ' : ""}<span class="st s-${m.status}">${LBL[m.status] || m.status}</span> ${esc(m.task) || '<span class="muted">—</span>'}
+        ${m.stopped ? '<span class="tag stop">arrêté</span>' : ""}${m.push_ok ? '<span class="tag push">feu vert</span>' : ""}</div>
+      <div class="ovsub">${ctxTag(s, m.id)} ${m.role === "integrator" ? "intégrateur · " : ""}${esc(m.domain) || "domaine non attribué"}${m.branch ? " · " + esc(m.branch) : ""}
+        · <span class="${seenCls(m, s.now)}">vu il y a ${ago(s.now, m.updated)}</span></div>${checkBar(s, m.id)}
+    </div>
+    <div class="prog">${m.progress} %<div class="bar"><div style="width:${m.progress}%;background:var(--${m.status === "blocked" ? "err" : m.status === "done" ? "ok" : "work"})"></div></div></div>
+    <div class="wdots">${wdots(m) || '<span class="muted small">0 worker</span>'}</div>
+  </div>`).join("") || `<div class="empty muted">Aucun manager déclaré.</div>`;
+}
+
+function focusCard(id) {
+  document.getElementById("sec-managers").open = true;
+  const el = document.getElementById("card-" + id);
+  if (!el) return;
+  el.open = true; rememberCards();
+  el.scrollIntoView({behavior: "smooth", block: "start"});
+}
+function rememberCards() {
+  openCards = [...document.querySelectorAll("details.card")].filter(d => d.open).map(d => d.dataset.id);
+  store.set("sup.open", openCards);
+}
+
+// Progression déclarée (0-100 %) dans le temps, en marches : une seule série, pas de légende.
+function chart(m, now) {
+  const h = m.history.length ? [...m.history] : [[now, m.progress, m.real_files.length]];
+  if (new Set(h.map(p => p[1])).size < 2 && m.progress === 0) return `<div class="muted small">Pas encore de progression déclarée.</div>`;
+  h.push([now, h[h.length - 1][1], h[h.length - 1][2]]);
+  const W = 300, H = 72, L = 26, R = 6, T = 6, B = 14;
+  const t0 = h[0][0], t1 = Math.max(now, t0 + 60);
+  const x = t => L + (t - t0) / (t1 - t0) * (W - L - R), y = p => T + (1 - p / 100) * (H - T - B);
+  let d = `M${x(h[0][0])},${y(h[0][1])}`;
+  for (let i = 1; i < h.length; i++) d += `H${x(h[i][0])}V${y(h[i][1])}`;
+  const grid = [0, 50, 100].map(p => `<line x1="${L}" x2="${W - R}" y1="${y(p)}" y2="${y(p)}" stroke="var(--grid)"/>
+    <text x="${L - 4}" y="${y(p) + 3}" font-size="9" fill="var(--muted)" text-anchor="end">${p}</text>`).join("");
+  const lastp = h[h.length - 1];
+  return `<div class="chart" data-m="${m.id}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Progression du manager ${m.id} : ${m.progress} %">
+    ${grid}<path d="${d}" fill="none" stroke="var(--work)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+    <circle cx="${x(lastp[0])}" cy="${y(lastp[1])}" r="4" fill="var(--work)" stroke="var(--card)" stroke-width="2"/>
+    <text x="${L}" y="${H - 2}" font-size="9" fill="var(--muted)">${hm(t0)}</text>
+    <text x="${W - R}" y="${H - 2}" font-size="9" fill="var(--muted)" text-anchor="end">${hm(t1)}</text>
+    <line class="xh" y1="${T}" y2="${H - B}" stroke="var(--muted)" stroke-dasharray="2 2" visibility="hidden"/>
+  </svg><div class="tip"></div></div>`;
+}
+
+function hookCharts(state) {
+  document.querySelectorAll(".chart").forEach(el => {
+    const m = state.managers[el.dataset.m], svg = el.querySelector("svg"), tip = el.querySelector(".tip"), xh = el.querySelector(".xh");
+    const h = m.history.length ? m.history : [[state.now, m.progress, m.real_files.length]];
+    const t0 = h[0][0], t1 = Math.max(state.now, t0 + 60);
+    svg.addEventListener("mousemove", e => {
+      const r = svg.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width;
+      const t = t0 + Math.max(0, (fx * 300 - 26) / (300 - 32)) * (t1 - t0);
+      let pt = h[0]; for (const p of h) if (p[0] <= t) pt = p;
+      const vx = Math.min(300 - 6, Math.max(26, fx * 300));
+      xh.setAttribute("x1", vx); xh.setAttribute("x2", vx); xh.setAttribute("visibility", "visible");
+      tip.innerHTML = `<b>${pt[1]} %</b> · ${pt[2]} fichier(s) · ${hm(t)}`;
+      tip.style.display = "block";
+      tip.style.left = Math.min(r.width - tip.offsetWidth, Math.max(0, e.clientX - r.left - tip.offsetWidth / 2)) + "px";
+    });
+    svg.addEventListener("mouseleave", () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); });
+  });
+}
+
+let armed = null;
+const lastAct = {};
+async function act(btn, action, id) {
+  const key = action + id;
+  if (armed !== key) {  // deux clics : le premier arme, le second envoie
+    document.querySelectorAll("button.armed").forEach(b => { b.classList.remove("armed"); b.textContent = b.dataset.lbl; });
+    armed = key; btn.classList.add("armed"); btn.textContent = "Confirmer ?";
+    setTimeout(() => { if (armed === key) { armed = null; tick(); } }, 4000);
+    return;
+  }
+  armed = null; btn.disabled = true; btn.textContent = "…";
+  lastAct[id] = Date.now();
+  sendCommand({action, id});
+  setTimeout(() => tick(true), 5100);  // réactiver les boutons après la pause
+}
+
+function card(m, s, open) {
+  const wk = Object.values(m.workers).sort((a, b) => a.id.localeCompare(b.id));
+  const files = [...new Set([...m.files, ...m.real_files])].sort();
+  const isCommon = f => s.common.some(g => glob(g).test(f));
+  const fileTag = f => {
+    const bad = isCommon(f) ? m.role !== "integrator" : !m.scope.some(g => glob(g).test(f));
+    const cls = bad ? "bad" : m.real_files.includes(f) && !m.files.includes(f) ? "undeclared" : "";
+    const mark = m.real_files.includes(f) ? (m.files.includes(f) ? "" : " (non déclaré)") : " (déclaré, pas encore modifié)";
+    return `<code class="${cls}" title="${esc(f + mark)}">${esc(f)}</code>`;
+  };
+  const cooling = Date.now() - (lastAct[m.id] || 0) < 5000;  // 5 s sans nouvelle action après un envoi
+  const btn = (action, label, cls = "", off = false) => `<button class="${cls}" data-lbl="${label}" ${off || cooling ? "disabled" : ""}
+    style="${off || cooling ? "opacity:.4;cursor:default" : ""}" onclick="act(this,'${action}','${m.id}')">${label}</button>`;
+  return `<details class="card b-${m.status}" id="card-${m.id}" data-id="${m.id}" ${open ? "open" : ""}>
+    <summary><span>Manager ${esc(m.id)} ${m.role === "integrator" ? '<span class="tag">intégrateur</span>' : ""}
+      ${m.push_ok ? '<span class="tag push">feu vert push</span>' : ""}${m.stopped ? '<span class="tag stop">arrêté</span>' : ""}</span>
+      <span class="st s-${m.status}">${LBL[m.status] || m.status} · ${m.progress} %</span></summary>
+    <div class="muted small">${esc(m.session) || "session ?"} · <span class="${seenCls(m, s.now)}">signe de vie il y a ${ago(s.now, m.updated)}</span></div>
+    <div class="kv"><b>Domaine</b><span>${esc(m.domain) || "—"}</span></div>
+    <div class="kv"><b>Périmètre</b><span>${m.scope.length ? `<code>${m.scope.map(esc).join(" · ")}</code>` : '<span class="muted">non attribué</span>'}</span></div>
+    <div class="kv"><b>Tâche</b><span>${esc(m.task) || "—"}</span></div>
+    ${m.branch ? `<div class="kv"><b>Branche</b><code>${esc(m.branch)}</code>${m.status === "review" ? preBadge(m.prereview) + reviewBtn(m.id, m.branch) : ""}</div>` : ""}
+    ${m.status === "review" ? preReasons(m.prereview) : ""}
+    <div class="kv"><b>Git</b><span class="muted">${m.worktrees.length ? `${m.worktrees.length} worktree(s) · ${m.real_files.length} fichier(s) modifié(s) · ${m.files.length} déclaré(s)` : "aucun worktree déclaré"}</span></div>
+    ${chart(m, s.now)}
+    ${files.length ? `<div class="kv"><b>Fichiers</b><div class="files">${files.map(fileTag).join("")}</div></div>` : ""}
+    <div class="workers">${wk.length ? wk.map(w => `<div class="w"><b>${esc(w.id)}</b>
+      <span class="tag" title="modèle du worker">${esc(w.model || "opus")}</span>
+      <span class="st s-${w.status}">${LBL[w.status] || w.status}${w.status === "done" ? (w.verified ? " ✓" : " ?") : ""}</span>
+      <span>${esc(w.task)}</span></div>`).join("") : `<span class="muted small">aucun worker</span>`}</div>
+    <div class="actions">
+      ${waitingOf(s, m.id) ? `<span class="small lvl-warn">⏳ Réponds à son invite en haut de page.</span>`
+        // Boutons fixes, jamais permutés sur place : un clic de trop ne peut pas redonner ce qu'on vient de retirer.
+        : btn("greenlight", "Feu vert push", "go", m.push_ok) + btn("revoke", "Retirer le feu vert", "", !m.push_ok)}
+      ${btn("stop", "Stop", "danger", m.stopped)}${btn("resume", "Reprendre", "go", !m.stopped)}
+      ${freshBtn(s, m.id)} ${ctxTag(s, m.id)}
+      <span class="small muted">push : ${m.push_ok ? `<b style="color:var(--ok)">autorisé pour 1 push</b>${m.push_ok_at ? ` (expire à ${hm(m.push_ok_at + 1800)})` : ""}` : "non autorisé"}</span>
+    </div>
+  </details>`;
+}
+
+let last = null, lastSig = "", lastRender = 0;
+async function tick(force = false) {
+  if (armed) return;  // ne pas redessiner un bouton armé
+  let s;
+  try { s = await (await fetch("/api/state", {cache: "no-store"})).json(); }
+  catch { document.getElementById("clock").textContent = "⛔ serveur injoignable"; return; }
+  render(s, force);
+}
+
+// Une valeur par case, et sa courbe des 3 dernières minutes (série unique : pas de légende).
+function pcBlock(pc) {
+  if (!pc || pc.cpu == null) return `<div class="pcm" style="grid-column:1/-1;text-align:left"><span class="l">Stats du poste : en attente…</span></div>`;
+  const spark = idx => {
+    const h = (pc.history || []).map(p => p[idx]).filter(v => v != null);
+    if (h.length < 2) return "";
+    const pts = h.map((v, i) => `${(i / (h.length - 1) * 100).toFixed(1)},${(26 - v / 100 * 24).toFixed(1)}`).join(" ");
+    return `<svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--work)" stroke-width="1.5" vector-effect="non-scaling-stroke" opacity=".7"/></svg>`;
+  };
+  const cell = (v, label, idx, title) => `<div class="pcm ${v >= 90 ? "hot" : v >= 75 ? "warm" : ""}" title="${esc(title)}">
+    ${spark(idx)}<div class="v">${v == null ? "—" : v + " %"}</div><div class="l">${label}</div></div>`;
+  return cell(pc.cpu, "Processeur", 1, "Charge processeur") +
+    cell(pc.mem, "Mémoire", 2, `${pc.mem_used_gb} / ${pc.mem_total_gb} Go utilisés`) +
+    cell(pc.disk, "Disque", 3, `Temps actif du disque · C: ${pc.disk_used_pct} % plein, ${pc.disk_free_gb} Go libres`);
+}
+
+// Tickets en cours : les tâches non terminées et les clés Jira citées dans leur titre (même motif que cloture.py).
+const JIRA_KEY = /(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]+-\d+(?!\d)/g;
+function ticketsPanel(tasks, jiraUrl) {
+  const open = tasks.filter(t => t.status !== "done");
+  const base = (jiraUrl || "").replace(/\/+$/, "");
+  const key = k => base ? `<a href="${esc(base)}/browse/${esc(k)}" target="_blank" rel="noopener">${esc(k)}</a>` : `<code>${esc(k)}</code>`;
+  const rows = open.map(t => {
+    const keys = [...new Set((t.title || "").match(JIRA_KEY) || [])];
+    const crit = t.criteria || [], ok = crit.filter(c => c.passes).length;
+    return `<div class="t"><div class="keys">${keys.map(key).join("")}<span class="muted">${esc(t.id)}</span></div>
+      <div>${esc(t.title)}</div>
+      <div class="small muted">${esc(t.manager) || "—"} · <span class="st s-${esc(t.status)}">${LBL[t.status] || esc(t.status)}</span>${crit.length ? ` · critères ${ok}/${crit.length}` : ""}</div></div>`;
+  }).join("");
+  return `<h3>Tickets en cours <span class="muted small">${open.length}</span></h3>` + (rows || `<span class="muted small">Aucune tâche ouverte.</span>`);
+}
+
+// Objectif courant : titre, pourcentage, N/M tâches, barre, temps restant estimé, puis les tâches restantes (id + statut).
+function objectiveBar(o) {
+  if (!o) return "";
+  const p = Math.max(0, Math.min(100, o.percent));
+  const eta = o.eta || "temps restant : — (moins de 2 tâches finies récemment)";
+  // Estimation par débit (objectif.py) : travail restant ÷ tâches finies par heure sur les dernières heures d'activité.
+  const how = o.rate_text ? `Estimation : ${o.rate_text} (${o.measured} tâche(s) finie(s), review compté 0,9) · ${o.remaining_work.toLocaleString("fr-FR")} tâche(s) de travail restant`
+    + (o.median_s ? ` · durée médiane par tâche : ${Math.round(o.median_s / 60)} min` : "")
+    : "Estimation possible à partir de 2 tâches finies dans les 3 dernières heures d'activité";
+  const left = o.left.map(x => `<span class="st s-${esc(x.status)}" title="${esc(x.title)}${x.criteria[1] ? ` · critères ${x.criteria[0]}/${x.criteria[1]}` : ""}">${esc(x.id)} · ${LBL[x.status] || esc(x.status)}</span>`).join("");
+  return `<div class="obj">
+    <div class="top"><b>🎯 ${esc(o.title)}</b><b class="pct">${p} %</b><span class="muted">${o.done}/${o.n} tâches</span>
+      <span class="eta" title="${esc(how)}">${esc(eta)}</span></div>
+    <div class="bar" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100" aria-label="Avancement de l'objectif"><div style="width:${p}%;background:var(--${o.done === o.n ? "ok" : "work"})"></div></div>
+    ${left ? `<div class="left" title="Tâches restantes">${left}</div>` : ""}</div>`;
+}
+
+function render(s, force) {
+  if (!s) return;
+  last = s;
+  document.getElementById("pc").innerHTML = pcBlock(s.pc);  // à chaque relevé, sans redessiner le reste
+  // Redessiner seulement si l'état a changé (ou toutes les 20 s pour les « il y a ») : le survol des graphes reste stable.
+  const sig = JSON.stringify({...s, now: 0, pc: 0, sessions: Object.keys(s.sessions)});
+  if (!force && sig === lastSig && s.now - lastRender < 20) { document.getElementById("clock").textContent = `à jour ${hm(s.now)}`; return; }
+  lastSig = sig; lastRender = s.now;
+  if (document.querySelector("details.card")) rememberCards();
+
+  const ms = Object.values(s.managers).sort((a, b) => a.id.localeCompare(b.id));
+  const ws = ms.flatMap(m => Object.values(m.workers));
+  const tasks = Object.values(s.tasks), reqs = Object.values(s.requests), mq = s.merge_queue;
+  const errs = s.alerts.filter(a => a.level === "error").length, warns = s.alerts.length - errs;
+
+  const nWait = ms.filter(m => waitingOf(s, m.id)).length;
+  document.title = (nWait ? `⏳${nWait} · ` : "") + (errs ? `⛔${errs} · ` : warns ? `⚠${warns} · ` : "") + "Supervision";
+  // Ne pas effacer une réponse en cours de frappe.
+  if (!document.getElementById("waits").contains(document.activeElement)) document.getElementById("waits").innerHTML = waits(ms, s);
+  document.getElementById("project").textContent = s.project || "";
+  document.getElementById("clock").textContent = `à jour ${hm(s.now)}`;
+  document.getElementById("badge").innerHTML = errs ? `<span class="badge err">⛔ ${errs} alerte(s)</span>`
+    : warns ? `<span class="badge warn">⚠ ${warns} avertissement(s)</span>` : `<span class="badge ok">✓ tout va bien</span>`;
+  document.getElementById("quota").innerHTML = meter("5 h", s.quota.five_hour) + meter("7 jours", s.quota.seven_day);
+  document.getElementById("objective").innerHTML = objectiveBar(s.objective_status);  // rien sans objectif
+
+  const k = (v, label, cls = "") => `<span class="${cls}"><b>${v}</b> ${label}</span>`;
+  document.getElementById("kpis").innerHTML = [
+    k(ms.filter(m => m.status === "working").length + "/" + ms.length, "managers actifs"),
+    k(ws.filter(w => !["done", "idle"].includes(w.status)).length, `workers actifs (max ${s.worker_limit}/mgr)`, s.braked ? "lvl-error" : ""),
+    k(tasks.filter(t => t.status === "done").length + "/" + tasks.length, "tâches"),
+    k(reqs.filter(r => r.status === "open").length, "demande(s) à l'intégrateur"),
+    s.braked ? `<span class="lvl-error">⛔ frein quota serré</span>` : "",
+    s.host && s.host.braked ? `<span class="lvl-error">⛔ frein ${esc(s.host.braked)} du poste serré</span>` : "",
+    s.host && s.host.workers_total ? k(ws.filter(w => !['done', 'idle'].includes(w.status)).length + "/" + s.host.workers_total, "workers sur le poste", "") : "",
+    s.host && s.host.slots && (s.host.slots.held.length || s.host.slots.waiting.length) ? `<span class="lvl-warn">📦 ${s.host.slots.held.map(x => esc(x.name) + " (" + esc(x.who) + ")").join(", ") || "—"}${s.host.slots.waiting.length ? " · en file : " + s.host.slots.waiting.map(x => esc(x.who)).join(", ") : ""}</span>` : "",
+    s.check_lock ? `<span class="lvl-warn">🔒 check : ${esc(s.check_lock.owner)} · ${ago(s.now, s.check_lock.since)}${s.check_lock.progress ? " · " + checkText(s.check_lock) : ""}</span>` : `<span class="muted">🔓 check libre</span>`,
+  ].filter(Boolean).join("");
+
+  // Ne pas effacer un message au superviseur en cours de frappe.
+  if (!document.getElementById("overview").contains(document.activeElement)) document.getElementById("overview").innerHTML = overview(ms, s);
+
+  const merged = mq.filter(m => m.status === "merged").length;
+  const nextReady = mq.find(m => m.status !== "merged");
+  document.getElementById("pipe").innerHTML = mq.length
+    ? `<b>Fusion → dev</b>${mq.map((m, i) => `<span class="step ${m.status}" title="${i + 1}. ${esc(m.branch)} ${esc(m.sha)} — ${LBL[m.status] || m.status}${m.note ? " · " + esc(m.note) : ""}">${i + 1}</span>`).join("")}
+       <span class="muted small">${merged}/${mq.length} fusionnée(s)</span>
+       ${mq.filter(m => m.status === "ready").length ? `<span class="small">· prêtes pour le train : ${mq.filter(m => m.status === "ready").map(m => `<code>${esc(m.branch)}</code>`).join(", ")}</span>` : ""}
+       ${waitingOf(s, "D") ? `<span class="tag wait-tag">⏳ D attend ta validation (encadré en haut)</span>` : ""}
+       ${nextReady && nextReady.status === "ready" ? mergeBtn(nextReady) : ""}`
+    : `<b>Fusion → dev</b> <span class="muted small">file vide</span>`;
+
+  const sorted = [...s.alerts].sort((a, b) => (a.level === "error" ? 0 : 1) - (b.level === "error" ? 0 : 1));
+  document.getElementById("alerts").innerHTML = sorted.map(a => `<div class="alert ${a.level}">${esc(a.msg)}</div>`).join("");
+
+  const defOpen = m => ["working", "review", "blocked"].includes(m.status);
+  document.getElementById("managers").innerHTML = ms.map(m => card(m, s, openCards ? openCards.includes(m.id) : defOpen(m))).join("")
+    || `<span class="muted">Aucun manager déclaré.</span>`;
+  document.querySelectorAll("details.card").forEach(d => d.addEventListener("toggle", rememberCards));
+  hookCharts(s);
+
+  document.getElementById("n-tasks").textContent = `${tasks.filter(t => t.status === "done").length}/${tasks.length}`;
+  document.getElementById("tasks").innerHTML = tasks.map(t => `<tr><td>${esc(t.id)}</td><td>${esc(t.title)}</td>
+    <td>${esc(t.manager)}</td><td class="st s-${t.status}">${LBL[t.status] || esc(t.status)}</td><td>${esc(t.note)}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="muted">Aucune tâche attribuée.</td></tr>`;
+  document.getElementById("tickets").innerHTML = ticketsPanel(tasks, s.jira_url);
+
+  document.getElementById("n-merges").textContent = `${merged}/${mq.length}`;
+  document.getElementById("merges").innerHTML = mq.map((m, i) => `<tr><td>${i + 1}</td><td><code>${esc(m.branch)}</code></td>
+    <td><code>${esc(m.sha)}</code></td><td>${esc(m.manager)}</td><td class="st s-${m.status}">${LBL[m.status] || esc(m.status)}</td><td>${esc(m.note)}${preBadge(m.prereview)}${m.status !== "merged" ? reviewBtn(m.manager, m.branch) : ""}${mergeBtn(m)}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="muted">File vide.</td></tr>`;
+
+  const openReqs = reqs.filter(r => r.status === "open").length;
+  document.getElementById("n-requests").textContent = openReqs ? `${openReqs} ouverte(s)` : `${reqs.length}`;
+  if (openReqs) document.getElementById("sec-requests").open = true;
+  document.getElementById("requests").innerHTML = [...reqs].reverse().map(r => `<tr><td>${esc(r.id)}</td><td>${esc(r.from)}</td>
+    <td>${esc(r.what)}${r.files.length ? `<br><code>${r.files.map(esc).join(", ")}</code>` : ""}${r.answer ? `<br><span class="muted">→ ${esc(r.answer)}</span>` : ""}</td>
+    <td class="st s-${r.status}">${LBL[r.status] || esc(r.status)}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="muted">Aucune demande.</td></tr>`;
+
+  const sess = Object.values(s.sessions).sort((a, b) => (a.who || "~").localeCompare(b.who || "~"));
+  const cost = sess.reduce((t, x) => t + (x.cost || 0), 0);
+  document.getElementById("n-sessions").textContent = `${sess.length} · ${cost.toFixed(2)} $`;
+  document.getElementById("sessions").innerHTML = sess.map(x => `<tr><td>${x.who ? (x.who === "superviseur" ? "Superviseur" : "Manager " + esc(x.who)) : `<span class="muted">${esc((x.cwd || "").split(/[\\/]/).pop())}</span>`}</td>
+    <td>${esc(x.model)}</td><td>${x.ctx == null ? "—" : `<div class="bar" style="width:70px;display:inline-block;vertical-align:middle"><div style="width:${x.ctx}%;background:var(--${level(x.ctx)})"></div></div> ${x.ctx.toFixed(0)} %`}</td>
+    <td>${x.cost == null ? "—" : x.cost.toFixed(2) + " $"}</td><td class="muted">${ago(s.now, x.t)}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="muted">Aucune donnée : la statusline n'a encore rien transmis.</td></tr>`;
+
+  const sel = document.getElementById("evfilter"), cur = sel.value;
+  const whos = [...new Set(s.events.map(e => e.who))].sort();
+  sel.innerHTML = `<option value="">tout</option><option value="error">alertes</option>` + whos.map(w => `<option value="w:${esc(w)}">${esc(w)}</option>`).join("");
+  sel.value = cur;
+  const evs = s.events.filter(e => !cur || (cur === "error" ? e.level === "error" : "w:" + e.who === cur));
+  document.getElementById("events").innerHTML = evs.slice(0, 200).map(e =>
+    `<tr><td class="muted">${hm(e.t)}</td><td>${esc(e.who)}</td><td class="lvl-${e.level}">${esc(e.msg)}</td></tr>`).join("")
+    || `<tr><td class="muted">Rien.</td></tr>`;
+}
+// ---------- onglet « Superviseur » : la conversation entière, lisible, et de quoi y répondre ----------
+let chatNext = -1, chatTab = store.get("sup.tab", "overview");
+const md = t => (window.marked && window.DOMPurify)
+  ? DOMPurify.sanitize(marked.parse(t, {breaks: true, gfm: true}))
+  : `<div style="white-space:pre-wrap">${esc(t)}</div>`;
+const hhmm = ts => ts ? new Date(ts).toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"}) : "";
+
+function showTab(t) {
+  chatTab = t; store.set("sup.tab", t);
+  document.getElementById("view-overview").hidden = t !== "overview";
+  document.getElementById("view-sup").hidden = t !== "sup";
+  document.getElementById("tab-overview").setAttribute("aria-selected", t === "overview");
+  document.getElementById("tab-sup").setAttribute("aria-selected", t === "sup");
+  document.documentElement.style.setProperty("--hdr", document.querySelector("header").offsetHeight + "px");
+  if (t === "sup") chatPoll(true);
+}
+
+function peerName(who) {
+  const m = last && Object.values(last.managers).find(x => (x.session || "").startsWith(who));
+  return m ? `Manager ${m.id}` : who;
+}
+
+function chatItem(x, waitingS) {
+  if (x.role === "user") return `<div class="msg user" data-i="${x.i}"><div class="who">Toi · ${hhmm(x.t)}</div>${esc(x.text)}</div>`;
+  if (x.role === "assistant") return `<div class="msg assistant md" data-i="${x.i}"><div class="who">Superviseur · ${hhmm(x.t)}</div>${md(x.text)}</div>`;
+  if (x.role === "peer") {
+    if (!showPeers) return "";
+    // Une ligne repliée : qui, quand, et le début du message ; le texte entier au clic.
+    const first = x.text.replace(/^(Manager [A-D]\s*[:,—-]\s*)/, "").split("\n")[0];
+    return `<details class="peer" data-i="${x.i}"><summary><span class="pw">📨 ${esc(peerName(x.who))}</span> · ${hhmm(x.t)} — ${esc(first.slice(0, 110))}${first.length > 110 ? "…" : ""}</summary>
+      <div class="md">${md(x.text)}</div></details>`;
+  }
+  if (x.role === "question") {
+    const open = !x.answer, n = (x.questions || []).length;
+    const picked = chatChoices[x.i] || {};               // choix déjà envoyés depuis le tableau, par question
+    const current = [...Array(n).keys()].find(qi => picked[qi] === undefined);   // question en cours (Claude Code avance seul)
+    const sent = chatSubmitted[x.i];
+    const qs = (x.questions || []).map((q, qi) => `<div class="q">${n > 1 ? `${qi + 1}/${n} · ` : ""}${esc(q.question)}</div>
+      ${(q.options || []).map((o, oi) => {
+        const chosen = picked[qi] === oi;
+        const live = open && waitingS && !sent && qi === current;
+        const mark = live
+          ? `<button class="go" data-lbl="${oi + 1}" onclick='chooseOpt(this, ${x.i}, ${qi}, ${oi}, ${JSON.stringify(o.label)})'>${oi + 1}</button>`
+          : `<b style="${chosen ? "color:var(--ok)" : ""}">${chosen ? "✓" : oi + 1 + "."}</b>`;
+        return `<div class="opt" style="${picked[qi] !== undefined && !chosen ? "opacity:.45" : ""}">${mark}<span${chosen ? ' style="font-weight:600"' : ""}>${esc(o.label)}</span><span class="d">${esc(o.description || "")}</span></div>`;
+      }).join("")}`).join("");
+    let foot = "";
+    if (!open) foot = `<div class="ans">✓ ${esc(x.answer)}</div>`;
+    else if (sent) foot = `<div class="small muted" style="margin-top:6px">Réponses envoyées, en attente de la reprise du superviseur…</div>`;
+    // Tout est choisi : l'étape « Submit » de Claude Code, une question ou plusieurs. Si Claude Code a déjà
+    // validé seul, le panneau n'attend plus (waitingS faux) et le bouton disparaît au relevé suivant.
+    else if (waitingS && current === undefined)
+      foot = `<div class="row" style="margin-top:8px"><button class="go" data-lbl="Valider les réponses" onclick="submitAnswers(this, ${x.i})">Valider les réponses (Entrée)</button>
+        <button class="danger" data-lbl="Annuler" onclick="cancelQuestion(this, ${x.i})">Annuler (Échap)</button></div>`;
+    else if (waitingS) foot = `<div class="row" style="margin-top:6px"><span class="small muted">${n > 1 ? `Question ${current + 1}/${n} : ` : ""}un clic arme, un second envoie, puis « Valider les réponses ».</span>
+        <button class="danger" data-lbl="Annuler" onclick="cancelQuestion(this, ${x.i})">Annuler (Échap)</button></div>`;
+    return `<div class="qcard ${open ? "" : "done"}" data-i="${x.i}"><div class="who">❓ Question du superviseur · ${hhmm(x.t)}</div>${qs}${foot}</div>`;
+  }
+  return "";
+}
+
+// Réponses aux questions depuis le chat : un choix par question, dans l'ordre, puis validation (Entrée).
+const chatChoices = {}, chatSubmitted = {};
+function armOr(btn, key) {   // deux clics, comme partout : le premier arme
+  if (armed !== key) {
+    document.querySelectorAll("button.armed").forEach(b => { b.classList.remove("armed"); b.textContent = b.dataset.lbl; });
+    armed = key; btn.classList.add("armed"); btn.textContent = "Confirmer ?";
+    setTimeout(() => { if (armed === key) { armed = null; chatRerender(); } }, 4000);
+    return false;
+  }
+  armed = null; btn.disabled = true; return true;
+}
+function chooseOpt(btn, i, qi, oi, label) {
+  if (!armOr(btn, `q${i}:${qi}:${oi}`)) return;
+  (chatChoices[i] ||= {})[qi] = oi;
+  sendCommand({action: "answer", id: "S", key: String(oi + 1), label});
+  chatRerender();   // la validation reste un bouton à part, même pour une seule question
+}
+function submitAnswers(btn, i) {
+  if (!armOr(btn, `submit${i}`)) return;
+  chatSubmitted[i] = true;
+  sendCommand({action: "answer", id: "S", key: "enter", label: "Valider les réponses"});
+  chatRerender();
+}
+function cancelQuestion(btn, i) {
+  if (!armOr(btn, `cancel${i}`)) return;
+  chatSubmitted[i] = true;
+  sendCommand({action: "answer", id: "S", key: "escape", label: "Annuler"});
+  chatRerender();
+}
+
+// Filtres d'affichage, mémorisés : messages des managers (repliés, une ligne chacun) et actions du superviseur.
+let showPeers = store.get("sup.peers", true), showTools = store.get("sup.tools", true);
+function togglePeers(v) { showPeers = v; store.set("sup.peers", v); chatRerender(); }
+function toggleTools(v) { showTools = v; store.set("sup.tools", v); chatRerender(); }
+function chatRerender() {
+  const waitingS = !!(last && last.agents && last.agents.S && last.agents.S.waiting);
+  document.getElementById("chat").innerHTML = chatHtml(chatItems, waitingS);
+}
+document.getElementById("show-peers").checked = showPeers;
+document.getElementById("show-tools").checked = showTools;
+
+// Les actions (outils) consécutives sont regroupées en une ligne repliable.
+function chatHtml(items, waitingS) {
+  let out = "", tools = [];
+  const flush = () => {
+    if (!tools.length || !showTools) { tools = []; return; }
+    out += `<details class="tools"><summary>🔧 ${tools.length} action(s) · ${hhmm(tools[0].t)}</summary><ul>${tools.map(t =>
+      `<li><b>${esc(t.name)}</b> ${esc(t.text)}</li>`).join("")}</ul></details>`;
+    tools = [];
+  };
+  for (const x of items) { if (x.role === "tool") tools.push(x); else { flush(); out += chatItem(x, waitingS); } }
+  flush();
+  return out;
+}
+
+let chatItems = [];
+async function chatPoll(force) {
+  if (chatTab !== "sup" && !force) return;
+  let r;
+  try { r = await (await fetch(`/api/conversation?since=${chatNext}`, {cache: "no-store"})).json(); } catch { return; }
+  if (chatNext > r.next) chatItems = [];  // serveur redémarré : sa numérotation est repartie de zéro
+  if (!r.items.length && chatNext >= 0 && !force) { chatNext = r.next; return; }
+  const box = document.getElementById("chat");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const byI = new Map(chatItems.map(x => [x.i, x]));
+  for (const x of r.items) byI.set(x.i, x);           // les questions reviennent avec leur réponse
+  chatItems = [...byI.values()].sort((a, b) => a.i - b.i).slice(-1500);
+  chatNext = r.next;
+  const waitingS = !!(last && last.agents && last.agents.S && last.agents.S.waiting);
+  if (armed) return;  // ne pas redessiner un bouton armé (« Confirmer ? »)
+  if (!document.getElementById("chat").contains(document.activeElement)) box.innerHTML = chatHtml(chatItems, waitingS)
+    || `<p class="muted">Conversation introuvable pour l'instant (le serveur cherche le transcript de la session du superviseur).</p>`;
+  if (atBottom || force) box.scrollTop = box.scrollHeight;
+}
+
+function chatSend() {
+  const el = document.getElementById("chat-input"), text = el.value.trim().replace(/\s*\n\s*/g, " ");
+  if (!text) return;
+  el.value = "";
+  sendCommand({action: "answer", id: "S", text: "[Tableau de bord — message de l'utilisateur] " + text});
+}
+
+// La file d'attente propre au superviseur, sous la conversation, et un badge sur l'onglet.
+const _render = render;
+render = function (s, force) {
+  _render(s, force);
+  const w = (s.agents || {}).S;
+  document.getElementById("sup-badge").textContent = w && w.waiting ? "⏳" : "";
+  // L'en-tête grandit quand le quota et les stats du poste arrivent : le chat occupe exactement le reste.
+  document.documentElement.style.setProperty("--hdr", document.querySelector("header").offsetHeight + "px");
+  // Dans l'onglet Superviseur, pas d'encadré : une question posée dans le chat se répond par ses boutons ;
+  // pour une invite de permission, une seule ligne compacte, sans la copie d'écran.
+  const cw = document.getElementById("chat-wait");
+  const openQ = chatItems.some(x => x.role === "question" && !x.answer);
+  if (!cw.contains(document.activeElement)) cw.innerHTML = w && w.waiting && !openQ
+    ? `<div class="permbar">⏳ ${esc(w.reason || "Le superviseur attend une confirmation")}
+        <button class="go" data-lbl="1 · Oui" onclick='answerPrompt(this, "S", {"key":"1","label":"Oui"})'>1 · Oui</button>
+        <button class="danger" data-lbl="Échap · Non" onclick='answerPrompt(this, "S", {"key":"escape","label":"Non"})'>Échap · Non</button></div>`
+    : "";
+  const nowWaiting = !!(w && w.waiting);
+  if (nowWaiting !== prevWaitingS) { prevWaitingS = nowWaiting; if (chatTab === "sup") chatPoll(true); }  // boutons des questions
+};
+let prevWaitingS = false;
+
+showTab(chatTab);
+setInterval(() => chatPoll(false), 3000);
+tick(true); setInterval(tick, 3000);
+</script>
+<script>
+// Clôture de journée (lot 3.4, cloture.py) : propositions à cocher, brouillons éditables, validation en deux clics.
+let clo = null;
+const _renderClo = render;
+render = function (s, force) {   // bandeau du rappel du soir, en plus du rendu habituel
+  _renderClo(s, force);
+  const c = s.cloture, b = document.getElementById("clo-banner");
+  b.innerHTML = c && c.banner && document.getElementById("clo-panel").hidden
+    ? `<div class="alert warn">🌙 Il est passé ${esc(c.at)} : la journée n'est pas clôturée.
+        <button onclick="clotureOpen()">Clôturer la journée</button></div>` : "";
+};
+async function clotureOpen() {
+  const p = document.getElementById("clo-panel");
+  p.hidden = false; p.innerHTML = `<span class="muted">Préparation de la clôture…</span>`;
+  try {
+    const r = await fetch("/api/cloture", {cache: "no-store"});
+    clo = await r.json();
+    if (!r.ok) throw new Error(clo.error || r.status);
+  } catch (e) { p.innerHTML = `⛔ ${esc(e.message)} <button onclick="clotureClose()">Fermer</button>`; return; }
+  const box = (id, label, cmd, on = true, off = false) => `<label style="display:block;margin:3px 0">
+      <input type="checkbox" class="clo-act" value="${esc(id)}" ${on && !off ? "checked" : ""} ${off ? "disabled" : ""}> ${esc(label)}
+      ${cmd ? `<code class="small muted" style="display:block;margin-left:22px;overflow-wrap:anywhere">${esc(cmd)}</code>` : ""}</label>`;
+  const runs = clo.cleanup.filter(x => x.run), shows = clo.cleanup.filter(x => !x.run);
+  p.innerHTML = `<h3 style="margin:0 0 6px">Clôture du ${esc(clo.day)} <span class="muted small">— rien ne part sans validation</span></h3>
+    <h4>Compte rendu</h4>
+    ${box("log", `Ajouter l'entrée en tête de ${clo.log.path} (heure relue à l'écriture)`)}
+    <textarea id="clo-log" rows="5" style="width:100%">${esc(clo.log.text)}</textarea>
+    ${box("note", `Écrire la note ${clo.note.path}`)}
+    <details><summary class="small">Brouillon de la note</summary><textarea id="clo-note" rows="14" style="width:100%">${esc(clo.note.text)}</textarea></details>
+    <h4>Sauvegarde</h4>${box("backup", `Sauvegarder la base vers ${clo.backup.path}`)}
+    <h4>Audit de fin de journée <span class="muted small">(ce qui traîne ; lecture seule)</span></h4>
+    ${(clo.audit || []).map(x => `<div class="small">⚠ ${esc(x.label)}</div>`).join("") || `<div class="muted small">Rien à signaler : état final propre.</div>`}
+    <h4>Ménage</h4>
+    ${runs.map(x => box(x.id, x.label, x.cmd, false)).join("") || `<div class="muted small">Rien à ranger.</div>`}
+    ${shows.length ? `<div class="small muted" style="margin-top:6px">À faire à la main (jamais exécuté par le tableau) :</div>`
+      + shows.map(x => `<div class="small">${esc(x.label)}<code style="display:block;margin-left:22px">${esc(x.cmd)}</code></div>`).join("") : ""}
+    ${clearBox(clo)}
+    <h4>Clôtures Jira proposées <span class="muted small">(affichage seulement)</span></h4>
+    ${clo.jira.map(j => `<div class="small">${esc(j.ticket)} <span class="muted">— branche ${esc(j.branch)} fusionnée</span></div>`).join("")
+      || `<div class="muted small">Aucun ticket cité par une branche fusionnée.</div>`}
+    <div class="row" style="margin-top:10px"><button class="go" data-lbl="Valider la sélection" onclick="clotureGo(this)">Valider la sélection</button>
+      <button data-lbl="Fermer" onclick="clotureClose()">Fermer</button></div><div id="clo-res" class="small"></div>`;
+}
+// Vidage du tableau (plan du 2026-11-12) : décoché tant que l'audit n'est pas vert ; exécuté après la sauvegarde.
+function clearBox(clo) {
+  const c = clo.clear; if (!c) return "";
+  const green = !(clo.audit || []).length && !c.blockers.length;
+  return `<h4>Vider le tableau <span class="muted small">(après la sauvegarde ; journal et métriques gardés)</span></h4>
+    <label style="display:block;margin:3px 0"><input type="checkbox" class="clo-act" value="clear" ${green ? "checked" : ""}>
+      Vider le tableau pour la vague suivante : ${c.tasks} tâche(s), ${c.queue} branche(s) en file, ${c.requests} demande(s),
+      ${c.workers} worker(s)${c.objective ? ", l'objectif" : ""} ; les ${c.managers} manager(s) restent inscrits</label>
+    ${c.blockers.length ? `<div class="small">⚠ Refusé sans « forcer » : ${esc(c.blockers.join(" ; "))}</div>
+      <label class="small" style="display:block;margin-left:22px"><input type="checkbox" id="clo-force"> forcer le vidage malgré cela</label>` : ""}`;
+}
+function clotureClose() { document.getElementById("clo-panel").hidden = true; clo = null; tick(true); }
+async function clotureGo(btn) {
+  const actions = [...document.querySelectorAll(".clo-act:checked")].map(x => x.value);
+  const res = document.getElementById("clo-res");
+  if (!actions.length) { res.textContent = "Rien de coché."; return; }
+  if (armed !== "cloture") {  // deux clics, comme partout : le premier arme
+    document.querySelectorAll("button.armed").forEach(b => { b.classList.remove("armed"); b.textContent = b.dataset.lbl; });
+    armed = "cloture"; btn.classList.add("armed"); btn.textContent = `Confirmer ${actions.length} action(s) ?`;
+    setTimeout(() => { if (armed === "cloture") { armed = null; btn.classList.remove("armed"); btn.textContent = btn.dataset.lbl; } }, 4000);
+    return;
+  }
+  armed = null; btn.disabled = true; btn.textContent = "…";
+  try {
+    const r = await fetch("/api/cloture", {method: "POST", headers: {"Content-Type": "application/json", "X-Sup-Token": TOKEN},
+      body: JSON.stringify({actions, log_text: document.getElementById("clo-log").value,
+                            note_text: document.getElementById("clo-note").value,
+                            force_clear: !!(document.getElementById("clo-force") || {}).checked})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    res.innerHTML = j.result.map(x => `<div>${x.ok ? "✅" : "⛔"} ${esc(x.id)} : ${esc(x.msg)}</div>`).join("");
+    btn.textContent = "fait ✓";
+  } catch (e) { res.textContent = "⛔ " + e.message; btn.disabled = false; btn.classList.remove("armed"); btn.textContent = btn.dataset.lbl; }
+}
+</script>
+<section id="view-hist" hidden style="padding:12px 16px">
+<style>
+.hist-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+.hist-bar button[aria-pressed="true"] { border-color: var(--work); color: var(--ink); }
+.hist-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.hist-chart { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.hist-chart h4 { margin: 0 0 2px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.hist-chart .v { font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.hist-chart svg { display: block; width: 100%; height: auto; }
+.hist-chart rect.b { fill: var(--work); }
+.hist-chart rect.b:hover { fill: var(--review); }
+.hist-chart line { stroke: var(--line); stroke-width: 1; }
+.hist-chart text { fill: var(--muted); font-size: 9px; }
+#view-hist h3 { font-size: 14px; margin: 14px 0 6px; }
+#view-hist td, #view-hist th { font-variant-numeric: tabular-nums; }
+</style>
+  <div class="hist-bar" role="group" aria-label="Période">
+    <button data-s="day" onclick="histSet('day')">Par jour</button>
+    <button data-s="week" onclick="histSet('week')">Par semaine</button>
+    <button data-s="wave" onclick="histSet('wave')">Par vague</button>
+    <span id="hist-at" class="muted small" style="margin-left:auto"></span>
+  </div>
+  <div id="hist"><span class="muted">Chargement…</span></div>
+</section>
+<script>
+// Onglet « Historique » (lot 3.5, metrics.py via GET /api/metrics) : petites courbes en SVG inline, tableaux.
+let histScope = store.get("sup.hist", "day");
+const _showTabHist = showTab;
+showTab = function (t) {
+  _showTabHist(t);
+  document.getElementById("view-hist").hidden = t !== "hist";
+  document.getElementById("tab-hist").setAttribute("aria-selected", t === "hist");
+  if (t === "hist") histLoad();
+};
+function histSet(s) { histScope = s; store.set("sup.hist", s); histLoad(); }
+const histDur = s => s == null ? "—" : s >= 3600 ? `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}` : `${Math.round(s / 60)} min`;
+// Une mesure, une série : barres fines arrondies sur une ligne de base, survol = valeur de la période.
+function histChart(ps, label, get, fmt = v => v) {
+  const W = 220, H = 56, base = H - 12, n = Math.max(ps.length, 1), slot = W / n, bw = Math.max(2, Math.min(18, slot - 2));
+  const vals = ps.map(get), max = Math.max(0, ...vals.map(v => v || 0));
+  const bars = ps.map((p, i) => {
+    const v = vals[i] || 0, h = max ? Math.max(v ? 2 : 0, (v / max) * (base - 4)) : 0, x = i * slot + (slot - bw) / 2;
+    return `<g><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"><title>${esc(p.label)} : ${esc(String(fmt(v)))}</title></rect>`
+      + (h ? `<rect class="b" x="${x.toFixed(1)}" y="${(base - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="2" pointer-events="none"/>` : "") + `</g>`;
+  }).join("");
+  const last = ps.length ? fmt(vals[vals.length - 1] || 0) : "—";
+  return `<div class="hist-chart"><h4>${esc(label)}</h4><div class="v">${esc(String(last))} <span class="muted small">${ps.length ? esc(ps[ps.length - 1].label) : ""}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${bars}
+    <line x1="0" x2="${W}" y1="${base}" y2="${base}"/>
+    ${ps.length ? `<text x="0" y="${H - 1}">${esc(ps[0].label)}</text><text x="${W}" y="${H - 1}" text-anchor="end">${esc(ps[ps.length - 1].label)}</text>` : ""}</svg></div>`;
+}
+async function histLoad() {
+  document.querySelectorAll(".hist-bar button").forEach(b => b.setAttribute("aria-pressed", b.dataset.s === histScope));
+  const box = document.getElementById("hist");
+  let m;
+  try {
+    const r = await fetch(`/api/metrics?scope=${histScope}`, {cache: "no-store"});
+    m = await r.json();
+    if (!r.ok) throw new Error(m.error || r.status);
+  } catch (e) { box.innerHTML = `<span class="muted">⛔ Métriques indisponibles : ${esc(e.message)}</span>`; return; }
+  document.getElementById("hist-at").textContent = "mis à jour " + new Date(m.now * 1000).toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"});
+  if (m.empty || !m.periods.length) {
+    box.innerHTML = `<p class="muted">Pas encore de données ${histScope === "wave" && !m.periods.length ? "(aucune vague déclarée : <code>sup.py plan &lt;fichier&gt;</code>)" : ""} :
+      l'historique (statuts des tâches, file de fusion, quota, défauts) s'accumule depuis le passage à SQLite.</p>`;
+    return;
+  }
+  const ps = m.periods, money = v => `${(+v).toFixed(2)} $`;
+  const td = v => `<td>${v == null ? "—" : esc(String(v))}</td>`;
+  box.innerHTML = `<div class="hist-charts">
+      ${histChart(ps, "Tâches livrées", p => p.delivered)}
+      ${histChart(ps, "Trains de fusion", p => p.trains)}
+      ${histChart(ps, "Quota 5 h consommé (pts)", p => p.quota.five_hour)}
+      ${histChart(ps, "Coût des sessions", p => p.cost, money)}
+      ${histChart(ps, "Défauts trouvés", p => p.defects)}
+      ${histChart(ps, "Refus et collisions", p => p.refusals + p.collisions)}
+    </div>
+    <h3>Par période</h3>
+    <table><thead><tr><th>Période</th><th>Livrées</th><th>Trains</th><th>Durée moy.</th><th>Checks complets (verts)</th>
+      <th>Quota 5 h</th><th>Quota 7 j</th><th>Coût</th><th>Défauts</th><th>Refus</th><th>Collisions</th><th>Élargissements</th></tr></thead><tbody>
+      ${ps.slice().reverse().map(p => `<tr><td>${esc(p.label)}</td>${td(p.delivered)}${td(p.trains)}${td(p.train_min == null ? null : p.train_min + " min")}
+        ${td(`${p.full_checks} (${p.full_checks_ok})`)}${td(p.quota.five_hour)}${td(p.quota.seven_day)}${td(money(p.cost))}
+        ${td(p.defects)}${td(p.refusals)}${td(p.collisions)}${td(p.widenings)}</tr>`).join("")}</tbody></table>
+    <h3>Par tâche</h3>
+    <table><thead><tr><th>Tâche</th><th>Mgr</th><th>Cadrage → revue</th><th>Revue → prête</th><th>Prête → fusionnée</th><th>Total</th>
+      <th>Allers-retours</th><th>Élarg.</th><th>Refus</th><th>Collisions</th></tr></thead><tbody>
+      ${m.tasks.map(x => `<tr><td>${esc(x.id)} ${esc(x.title)}</td>${td(x.manager)}${td(histDur(x.d_cadrage))}${td(histDur(x.d_review))}
+        ${td(histDur(x.d_merge))}${td(histDur(x.d_total))}${td(x.review_rounds)}${td(x.widenings)}${td(x.refusals)}${td(x.collisions)}</tr>`).join("")
+        || `<tr><td class="muted" colspan="10">Pas encore de données (changements de statut des tâches).</td></tr>`}</tbody></table>
+    <h3>Défauts trouvés</h3>
+    <table><tbody>${m.defects.slice().reverse().map(d => `<tr><td class="muted">${new Date(d.t * 1000).toLocaleString("fr-FR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</td>
+      <td>${esc(d.manager || "—")}</td><td>${esc(d.msg)}</td></tr>`).join("") || `<tr><td class="muted">Aucun (<code>sup.py note X --defaut "…"</code>).</td></tr>`}</tbody></table>
+    <h3>Sessions les plus coûteuses</h3>
+    <table><thead><tr><th>Qui</th><th>Modèle</th><th>Coût cumulé</th><th>Vu</th></tr></thead><tbody>
+      ${m.sessions.map(x => `<tr>${td(x.who)}${td(x.model)}${td(money(x.cost))}<td class="muted">${new Date(x.t * 1000).toLocaleString("fr-FR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</td></tr>`).join("")
+        || `<tr><td class="muted" colspan="4">Aucune.</td></tr>`}</tbody></table>`;
+}
+setInterval(() => { if (chatTab === "hist") histLoad(); }, 60000);
+if (chatTab === "hist") showTab("hist");
+</script>
+</body>
+</html>

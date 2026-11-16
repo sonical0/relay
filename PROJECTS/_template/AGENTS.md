@@ -1,36 +1,37 @@
-# {PROJECT_NAME} — Instructions agents
+# {PROJECT_NAME} — agent instructions
 
-## Qu'est-ce que ce projet
+> Local rules only. The framework-wide rules live in `../../AGENTS.md` and are not
+> repeated here: one owner per rule.
 
-<!-- Une ou deux phrases : objectif principal, utilisateurs, outputs clés -->
+## What this project is
 
-## Structure des fichiers
+<!-- One or two sentences: goal, users, key outputs. -->
 
-| Chemin | Rôle |
-|--------|------|
-| (à remplir) | |
+## File structure
 
-## Division des rôles
+| Path | Role |
+|---|---|
+| | |
 
-Voir `../../relay-brain.yml → conventions` pour les propriétaires par défaut.
-Documenter ici uniquement les exceptions ou spécificités de ce projet.
+## Role split
 
-| Tâche | Agent propriétaire | Notes |
-|-------|-------------------|-------|
-| (à définir) | | |
+Defaults are in `../../relay-brain.yml → conventions`. Record here only what differs
+for this project.
 
-## Canal temps réel
+| Task | Owner | Notes |
+|---|---|---|
+| | | |
 
-Si le message broker est actif (`bash TOOLS/relay-server-start.sh`) :
-- Envoyer une task à agy : `node TOOLS/relay-chat.mjs send claude --to agy "<prompt>"`
-- Lire les résultats : `node TOOLS/relay-chat.mjs poll claude`
+## Data contract
 
-## Contrat de données
+<!-- Which files are user data, which are generated? -->
+<!-- Who may overwrite what without asking first? -->
 
-<!-- Quels fichiers sont des données utilisateur vs générés automatiquement ? -->
-<!-- Qui peut écraser quoi sans confirmation préalable ? -->
+## Local conventions
 
-## Conventions locales
+<!-- Only what differs from ../../AGENTS.md. If nothing differs, leave this empty -->
+<!-- rather than restating the global rules. -->
 
-<!-- Uniquement ce qui diffère des conventions globales dans relay-brain.yml -->
-<!-- Si rien ne diffère, laisser vide -->
+## Done when
+
+<!-- How this project verifies its own work: the build, the test, the check to run. -->

@@ -1,84 +1,96 @@
-# Relay Agent Brain — Template portable (état live)
-# INSTRUCTIONS : copier ce fichier en relay-brain.yml avant utilisation.
-#   cp relay-brain.template.yml relay-brain.yml   (macOS/Linux)
+# Relay brain — portable template
+#
+# INSTRUCTIONS: copy this file to relay-brain.yml before use.
+#   cp relay-brain.template.yml relay-brain.yml          (macOS/Linux)
 #   Copy-Item relay-brain.template.yml relay-brain.yml   (PowerShell)
-# Ou lancer /framework-init — le wizard copie et configure automatiquement.
 #
-# Ce fichier contient l'état VOLATILE (projets, claims, wmux, cross_project_log).
-# Les sections STABLES (capacités, conventions) → relay-brain-ref.yml / relay-brain-ref.md
+# This file is MANUAL and carries human intent. Nothing writes to it automatically.
+# Measured project status is derived from disk into relay-projects.derived.yml by
+# TOOLS/project-scan.mjs — the two can therefore never contradict each other in
+# silence, the way a hand-typed `status:` field used to.
 #
-# RÈGLE : Lire avant de commencer, écrire atomiquement (lire → modifier → sauvegarder).
-# CHEMIN : Tous les chemins sont relatifs depuis RELAY_ROOT (dossier contenant ce fichier).
+# Paths are relative to RELAY_ROOT (the directory holding this file), or use the
+# {{relay_root}} placeholder, resolved through machines[<hostname>].relay_root.
 
-version: 2
-last_updated: "{{DATE}}"
-last_agent: "{{AGENT}}"
-wmux_status: unknown  # Lancer /framework-init pour configurer automatiquement
+version: 3
 
-architecture:
-  hub: "./relay-brain.yml"
-  ref: "./relay-brain-ref.yml"
-  spoke_pattern: "./PROJECTS/{PROJECT}/"
-  skills_dir: "./SKILLS/"
-  tools_dir: "./TOOLS/"
-  note: >
-    Tous les chemins sont relatifs depuis RELAY_ROOT (le dossier contenant ce fichier).
-    Scripts Node.js : path.dirname(fileURLToPath(import.meta.url)) + navigation relative.
-    Variable d'env $RELAY_ROOT optionnelle — prend la priorité si définie.
+# ─── Machines ────────────────────────────────────────────────────────────────
+# One entry per machine, keyed by $RELAY_HOST if set, else the hostname:
+#   Windows       → $env:COMPUTERNAME
+#   Linux / macOS → hostname
+# `npm run init` adds this machine for you. project-scan uses this to tell "the
+# project is absent" (a problem) from "the project lives on another machine" (expected).
+# `role:` workstation (default) | satellite (VM/container running unattended agents:
+# regenerates its local files, never writes the brain). See RULES/synchro.md.
+machines:
+  MY-MACHINE:
+    relay_root: "C:/path/to/relay"
+    os: windows            # windows | macos | linux
+    shell: powershell      # powershell | zsh | bash
+    role: workstation
+    browser_panel: unknown # unknown | operational | unavailable
 
+# ─── Agents ──────────────────────────────────────────────────────────────────
+# Capabilities and limits also live in each {AGENT}.md. Keep this list short —
+# it is the machine-readable index, not the documentation.
 agents:
   claude:
-    env: windows-powershell    # Adapter : windows-powershell | macos-zsh | linux-bash
     cli: claude-code
-    sandbox: null
-    installed: true
-    notes: "Orchestrateur. Voir relay-brain-ref.yml pour les capacités complètes."
+    role: orchestrator
+    sandbox: null          # null = no path restriction
+    can: [filesystem, node-scripts, subagents, web]
+  gemini:
+    cli: gemini-cli
+    role: worker
+    sandbox: "{{relay_root}}"
+    can: [playwright-headless, node-scripts, python, web-search, image-generation]
 
-  antigravity:
-    env: windows-powershell    # Adapter selon le poste
-    cli: antigravity-cli
-    alias: agy
-    compat: gemini-cli
-    sandbox: "./"
-    installed: false           # Mettre à true après installation
-    notes: "Worker. Sandboxé dans RELAY_ROOT. Voir relay-brain-ref.yml pour les capacités."
-
+# ─── Conventions ─────────────────────────────────────────────────────────────
+# Default owners, used when a project does not state otherwise in its own
+# PROJECTS/<name>/AGENTS.md. The rules themselves live in AGENTS.md.
 conventions:
-  log_format: "## YYYY-MM-DD — Agent (projet : sujet) + max 5 bullets, 15 mots, pas sous-listes"
-  log_granularity: batch-summary
-  encoding_rule: "UTF-8 sans BOM. Jamais PowerShell pour texte accentué → Node.js"
-  liveness_owner: antigravity
-  pdf_owner: claude
-  merge_owner: claude
-  evaluation_owner: claude
-  scan_owner: antigravity
-  cross_project_log_max_days: 30
-  cross_project_log_archive: "./relay-brain-history.yml"
-  bootstrap_generic: "./relay-bootstrap.md"
-  bootstrap_local: ".relay-bootstrap.md"
-  relay_log: "./RELAY_LOG.md"
-  relay_chat: "./RELAY_CHAT.md"
-  tools_manifest: "./TOOLS/README.md"
-  hooks:
-    session: ".claude/hooks/relay-session-hook.js"
-    setup: ".claude/hooks/relay-setup-hook.js"
-    stop: ".claude/hooks/relay-stop-hook.js"
-    install_cmd: "node .claude/hooks/relay-setup-hook.js"
-  needs_bootstrap_sync: []   # Projets dont le .relay-bootstrap.md local est périmé
-  state_protocol: >
-    Lire relay-brain.yml → RELAY_LOG.md (50 dernières lignes) → .relay-bootstrap.md projet → commencer.
-    Écrire atomiquement : lire → modifier → sauvegarder en une seule opération.
+  default_owner: claude
+  scraping_owner: gemini
+  log: "LOG/<host>.md (merged into the generated RELAY_LOG.md)"
 
+# ─── Projects ────────────────────────────────────────────────────────────────
+# `intent:` is the only status field here, and it is human. Leave it unset for a
+# project in normal progress — project-scan derives active/idle/dormant from the
+# last git commit or file mtime. Set it only to declare a terminal state:
+#   delivered | abandoned | archived | done
+# If you declare a project done and it keeps moving, the scan flags the conflict
+# instead of hiding it.
+#
+# `machines:` (optional) restricts a project to specific hosts; elsewhere its
+# absence is expected rather than reported as a problem.
+# Left empty on purpose: a declared project whose directory does not exist is
+# reported as `absent`, which must stay a problem signal rather than template noise.
+# `node TOOLS/new-project.mjs <name>` fills this in for you. By hand it looks like:
+#
+#   my-project:
+#     path: "{{relay_root}}/PROJECTS/my-project"
+#     summary: "One line: what this project is for."
+#     intent: delivered        # optional, terminal states only
+#     machines: [MY-MACHINE]   # optional, restricts it to certain hosts
+#
+# A versioned project lives OUTSIDE PROJECTS/ and outside sync: the git remote is
+# the source of truth. `path` is the clone's real absolute path, without `~`. On a
+# machine where it does not exist, the folder name is looked up under
+# ~/Documents/GitHub/ and ~/Documents/Git/ ($RELAY_CLONE_DIRS overrides); a clone
+# elsewhere is declared per machine:
+#
+#   my-app:
+#     path: "C:/Users/me/Documents/GitHub/my-app"
+#     paths: { OTHER-MACHINE: "/home/me/src/my-app" }
+projects:
+
+# ─── Cross-project notes ─────────────────────────────────────────────────────
+# Short, dated, last 30 days; older entries move to relay-brain-history.yml
+# (monthly rotation, automatic).
 cross_project_log: []
-  # Format : {date: "YYYY-MM-DD", agent: claude|agy, project: nom, action: "description"}
-  # Garder 30 derniers jours. Archiver dans relay-brain-history.yml au-delà.
 
-projects: {}
-  # Ajouter ici les projets lors de leur création (via init-relay-project.mjs ou manuellement).
-  # Exemple :
-  #   mon-projet:
-  #     path: "PROJECTS/mon-projet"
-  #     bootstrap: "PROJECTS/mon-projet/.relay-bootstrap.md"
-  #     relay_log: "RELAY_LOG.md"
-  #     claims: []
-  #     known_issues: []
+# ─── Supervision (optional) ──────────────────────────────────────────────────
+# Per-project configuration of TOOLS/supervision (`npm run supervision -- <project>`).
+# Leave it out until you need several agents on one project. Commented example
+# and field reference: TOOLS/supervision/brain-example.yml.
+# supervision:

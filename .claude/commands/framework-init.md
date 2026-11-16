@@ -1,107 +1,51 @@
-# /framework-init — Wizard d'initialisation du framework Relay
-
-Ce wizard configure Relay sur un nouveau poste. Il détecte l'OS, copie les templates, propose les outils optionnels, et prépare le framework pour une première session.
-
-## Instructions pour Claude Code
-
-Quand l'utilisateur tape `/framework-init`, exécuter les étapes suivantes dans l'ordre :
-
+---
+description: "Set Relay up on this machine: brain, hooks, skills, status, index."
 ---
 
-### Étape 1 — Détecter l'environnement
+Run the Relay initialization for this machine and report what happened. Do not skip a
+step silently — if one fails, say so and continue with the rest.
 
-Exécuter les commandes suivantes et noter les résultats :
+## 1. Check
+
+- `node --version` — Relay needs Node 20+. Stop here if it is older.
+- Hostname (`$RELAY_HOST` if set, else `$env:COMPUTERNAME` / `hostname`): the key under
+  `machines:` in the brain.
+
+## 2. Preview, then run
 
 ```bash
-node --version      # Vérifier Node.js 18+
-python3 --version   # Vérifier Python 3.8+ (pour relay-server.py)
-git --version       # Vérifier Git
-uname -s            # Détecter OS (Linux, Darwin, MINGW = Windows)
+npm run init -- --dry-run
+npm run init
 ```
 
-Si Node.js < 18 → signaler et s'arrêter. Le framework requiert Node.js 18+.
+`TOOLS/relay-init.mjs` creates `relay-brain.yml` with this machine if missing, installs
+the dependency, installs the hooks (respecting `$CLAUDE_CONFIG_DIR`), links skills and
+copies rules, derives status, builds the index and the injected state. Show the user its
+output. It is idempotent.
 
----
+## 3. The brain
 
-### Étape 2 — Copier le brain template
+Open `relay-brain.yml` and, with the user, keep under `agents:` only the CLIs actually
+installed (test `claude --version`, `gemini --version`, any other they mention). Leave
+`projects:` alone — `node TOOLS/new-project.mjs <name>` adds them. Never invent an
+`intent:` value: it is the user's to declare.
 
-Vérifier si `relay-brain.yml` existe. Si absent :
+## 4. Permissions
+
+The init prints a `permissions` block with the real path. If the user `settings.json`
+lacks it, ask the user (with `AskUserQuestion`) whether to add it. Without it, every skill
+load or tool run from a project directory costs an approval prompt.
+
+## 5. Verify and report
 
 ```bash
-cp relay-brain.template.yml relay-brain.yml
+npm test
+npm run rag -- --query "atomic write validate before swap"
 ```
 
-Ouvrir `relay-brain.yml` et adapter les champs suivants selon l'OS détecté :
-- `agents.claude.env` : `linux-bash` | `macos-zsh` | `windows-powershell`
-- `agents.antigravity.env` : même valeur
-- `last_updated` : date du jour (YYYY-MM-DD)
+Summarise: OS and hostname, agents found, on-demand vs native skills, projects detected,
+hooks and permissions in place, anything that failed. Remind the user that the hooks only
+apply after restarting Claude Code.
 
----
-
-### Étape 3 — Installer les hooks Claude Code
-
-```bash
-node .claude/hooks/relay-setup-hook.js
-```
-
-Ce script est idempotent. Il installe (ou vérifie) les 3 hooks dans `~/.claude/settings.json` :
-- `UserPromptSubmit` → `relay-session-hook.js` (boot context au démarrage)
-- `SessionStart` → `relay-setup-hook.js` (auto-vérification)
-- `Stop` → `relay-stop-hook.js` (vérifie que RELAY_LOG.md est à jour)
-
-Si des hooks ont été ajoutés → demander à l'utilisateur de relancer Claude Code pour les activer.
-
----
-
-### Étape 4 — wmux (optionnel, Windows principalement)
-
-Tester : `wmux ping`
-
-**Windows** : si absent → proposer l'installation. Expliquer : wmux = panel navigateur visible en temps réel dans le terminal.
-**macOS/Linux** : wmux non disponible nativement. Proposer tmux comme alternative (déjà utilisé par `relay-agent-loop.sh`).
-
-Selon le résultat, mettre à jour `relay-brain.yml → wmux_status` :
-- `operational` si wmux répond
-- `unavailable` sinon
-
----
-
-### Étape 5 — RTK (optionnel, recommandé)
-
-Tester : `rtk --version`
-
-Si absent → proposer l'installation. Expliquer : RTK est un proxy CLI transparent qui réduit la consommation de tokens de 60-90% (git, npm, cargo, etc.).
-
-Si déjà présent → vérifier le hook PreToolUse dans `~/.claude/settings.json`.
-
-Le hook RTK (PreToolUse) est distinct des hooks Relay (il peut coexister).
-
----
-
-### Étape 6 — antigravity-cli / agy (optionnel)
-
-Tester : `agy --version` ou `gemini --version`
-
-Si aucun n'est présent → indiquer que le framework fonctionne en mode Claude-only.
-Si `gemini` est présent mais pas `agy` → noter la compatibilité dans `relay-brain.yml`.
-Si `agy` est présent → mettre à jour `relay-brain.yml → agents.antigravity.installed: true`.
-
----
-
-### Étape 7 — Résumé de configuration
-
-Afficher un récapitulatif :
-
-```
-✅ / ❌  Node.js <version>
-✅ / ❌  Python 3 <version>
-✅ / ❌  Hooks Claude Code installés
-✅ / ❌  wmux (status)
-✅ / ❌  RTK (status)
-✅ / ❌  antigravity-cli/agy (status)
-```
-
-Indiquer les prochaines étapes :
-- `cp relay-brain-ref.template.yml relay-brain-ref.yml` si souhaité
-- Créer un premier projet : `node TOOLS/init-relay-project.mjs mon-projet`
-- Lire `SETUP.md` pour la configuration manuelle complète
+Finally, the one habit that matters: **open the agent inside the project directory, not at
+the Relay root** — the injected state is then about that project.

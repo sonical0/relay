@@ -1,124 +1,124 @@
-# Relay — Instructions pour tous les agents CLI
+# Relay — conventions
 
-> **Lis ce fichier en PREMIER**, avant CLAUDE.md, ANTIGRAVITY.md ou tout autre fichier agent.
-> Ensuite lis ton fichier spécifique (`CLAUDE.md`, `ANTIGRAVITY.md`, etc.) pour tes capacités et limites.
+> **The single source of Relay's rules.** Every rule has exactly one owning file; duplication
+> is a bug. This file is loaded in **every** session (~0.37 token per byte), so it keeps only
+> universal rules. Rules that matter only when touching certain files live in `RULES/`
+> (copied to `.claude/rules/`, loaded the first time a matching file is touched). Reasons and
+> dated measurements live in `DECISIONS.md` — "DECISIONS, YYYY-MM-DD" points to an entry.
+> Before adding a line here: measure.
 
----
+Every CLI agent reads this file. Agent-specific capabilities live in `CLAUDE.md`, `GEMINI.md`
+or `{AGENT}.md`, which are thin and include this one.
 
-## Qu'est-ce que ce framework
+## Who owns what
 
-Relay est un hub de coordination pour plusieurs agents CLI (Claude Code, Antigravity CLI / agy, et futurs agents) travaillant en tandem sur des projets. Il centralise le protocole, les conventions et la mémoire partagée entre agents.
+- **Manual**: universal rules `AGENTS.md` · per-area rules `RULES/*.md` · reasons `DECISIONS.md` · machines, projects, `intent:` `relay-brain.yml` (optionally split in `BRAIN/`) · journal per machine `LOG/<host>.md` (newest on top) · agents' proposals `INBOX/<host>/` (reviewed with `/inbox`).
+- **Generated** — never edit, change the script or its input: real status `relay-projects.derived.yml` (`TOOLS/project-scan.mjs`) · injected state `.relay-state.md` and `.relay-state/<project>.md` (`TOOLS/relay-state.mjs`) · merged journal `RELAY_LOG.md` (`TOOLS/relay-log.mjs`) · search index `.relay-rag.json` (`TOOLS/rag-index.mjs`) · `.claude/skills/`, `.claude/rules/` (`TOOLS/skills-link.mjs`) · supervision sheets `.relay-supervision/`.
 
----
+Never write to `relay-brain.yml` automatically: it carries human intent; measured facts go to
+the generated files. What should last but touches a rule or a skill: a proposal in
+`INBOX/<host>/`. Several machines: `RULES/synchro.md`.
 
-## Résolution de RELAY_ROOT
+## Startup
 
-`RELAY_ROOT` = le dossier contenant ce fichier `AGENTS.md`.
+The `SessionStart` hook injects a pre-digested state picked from the `cwd`:
+`.relay-state/<project>.md` inside a project (status, recent sessions *of that project*, local
+rules), otherwise `.relay-state.md`. It is re-injected after every compaction. Nothing else is
+read by default.
 
-- Dans les fichiers `.md` et `.yml` : chemins relatifs depuis `RELAY_ROOT` (ex: `./relay-brain.yml`)
-- Dans les scripts Node.js : `path.dirname(fileURLToPath(import.meta.url))` + navigation relative
-- Variable d'environnement `$RELAY_ROOT` optionnelle : si définie, prend la priorité
+**Work from the project directory, not the root**: the targeted state already holds the
+answer — 1 turn instead of 3 (DECISIONS, 2026-09-15).
 
-Ne jamais hardcoder de chemin absolu dans ce framework.
+Then, as needed:
+- **Query the RAG before opening a file**: `node TOOLS/rag-query.mjs --query "…" [--full] [--type <kind>]`.
+  Kinds: `rules` · `convention` · `project` · `skill` · `log` · `brain`. An excerpt that forces
+  you to open the file behind it costs more than no RAG: use `--full` when in doubt.
+- Machines and projects: `relay-brain.yml`. History: `RELAY_LOG.md`. A project's local rules:
+  `PROJECTS/<project>/AGENTS.md`.
 
----
+**First run on a machine** (no `relay-brain.yml`, only the template): do not enter the normal
+protocol. Tell the user, then run `npm run init` (or `/framework-init`, or `SETUP.md`).
 
-## Détection premier lancement
+## Paths
 
-**Avant toute autre chose** : vérifie si `./relay-brain.yml` existe.
+`RELAY_ROOT` is the directory holding this file (`$RELAY_ROOT` wins when set). In `.md` and
+`.yml` files, paths are relative to it; in `relay-brain.yml`, `{{relay_root}}` resolves through
+`machines[<host>].relay_root` (`<host>` = `$RELAY_HOST`, else the hostname; add your machine if
+absent). Never hardcode an absolute path in the framework.
 
-Si **absent** (seul `./relay-brain.template.yml` existe) :
-> Tu es sur un nouveau poste. N'entre **pas** dans le protocole normal.
-> Dis à l'utilisateur : "Je détecte un premier lancement du Relay. Je vais te guider à travers la configuration initiale."
-> Lance `/framework-init` ou guide manuellement via `SETUP.md`.
+**Versioned projects live outside `PROJECTS/` and outside sync**: the git remote is the source
+of truth, the clone is disposable. In the brain, `path` = the **real absolute path of the
+clone, without `~`**, otherwise no targeted state. Look in `~/Documents/GitHub/` and
+`~/Documents/Git/` before concluding a clone is missing; absent from this machine = `absent`,
+expected — do not recreate the folder (DECISIONS, 2026-09-18 and 2026-09-19).
 
-Si **présent** : continuer avec le protocole d'entrée ci-dessous.
+## Writing conventions
 
----
+- **Atomic**: read → modify → write through tmp + rename, format re-validated (YAML/JSON)
+  before the swap. Reference: `TOOLS/lib/atomic.mjs`.
+- **Journal**: at the end of a session, one entry **on top** of `LOG/<host>.md` (never in
+  `RELAY_LOG.md`, generated): `## YYYY-MM-DD HH:MM — Agent (project: subject)` then at most 5
+  bullets of 15 words, `- [project] action → measured result`. The time is **read from the
+  clock** (`date +"%H:%M"`), never estimated. Detail: `RULES/journal.md`.
+- **Encoding**: UTF-8 without BOM. Never write accented text with Windows PowerShell 5 — use
+  the agent's file tool or Node.
+- **Clarify before generating**: for a substantial deliverable with real degrees of freedom,
+  2 to 5 targeted questions first — through the agent's structured question tool (clickable
+  choices, recommendation first), never a numbered list in the text. Not for a trivial or
+  already-scoped task (DECISIONS, 2026-10-27).
+- **Verification gate**: after a delegated agent reports back on anything that matters,
+  re-run the checks yourself (build, typecheck, diff, read the output). Never trust a
+  self-declared "done".
+- **A session commits only what it changed**: `git add` with explicit paths, never
+  `git add .` or `-A` — several sessions share the working copy. And `git push` publishes
+  **the whole branch**: before pushing, `git log origin/<branch>..HEAD`; if it holds another
+  session's commits, tell the user instead of pushing (DECISIONS, 2026-10-12).
+- **Never overwrite another agent's work** without saying so in the journal.
+- **Previews stay local** (`python -m http.server` + a browser panel); the repo is the source
+  of truth, not a hosted copy (DECISIONS, 2026-11-09).
+- **Durable facts go into Relay, not into an agent's private memory** (local to one machine,
+  invisible to the others): a project fact → the project's notes; a rule or preference → a
+  proposal in `INBOX/<host>/`.
 
-## Protocole d'entrée (ordre obligatoire)
+## Agents
 
-1. **Lire `./relay-brain.yml`** → capacités agents, claims actifs, état wmux
-2. **Lire `./RELAY_LOG.md` (50 dernières lignes)** → état récent cross-projets
-2.5. **Lire `./RELAY_CHAT.md`** si présent → canal temps réel inter-agents (derniers messages)
-3. **Lire `.relay-bootstrap.md` LOCAL au projet** (si opération dans un sous-projet de PROJECTS/)
-4. **Lire `AGENTS.md` du projet** → règles métier locales du projet en cours
-5. **Vérifier `claims[]` dans relay-brain.yml** → ne pas doubler le travail
-6. **Vérifier hooks Claude Code** : `node .claude/hooks/relay-setup-hook.js` si les 3 hooks sont absents de `~/.claude/settings.json`
-7. **Vérifier wmux** (voir section dédiée ci-dessous)
-8. **Commencer, logger dans `./RELAY_LOG.md`**
+Relay makes no assumption about which agents are present. The **orchestrator** is the agent
+with full filesystem access that can spawn the others; sandboxed agents are workers. Delegate
+to another agent what it alone can do rather than improvising a degraded equivalent. Record
+each agent's capabilities in its `{AGENT}.md` and under `agents:` in `relay-brain.yml`.
 
----
+**Adding a CLI agent**: create `{AGENT}.md` (includes this file, then capabilities and
+limits), add it under `agents:` in the brain, add `.{agent}/commands/framework-init.{ext}` if
+the CLI has slash commands, log it.
 
-## Étape wmux — comportement conditionnel
+Subagents: past 3 files, on a batch task, or for speculative search across unknown files.
 
-Tester la disponibilité : `wmux ping`
+**Multi-agent supervision** (several sessions on one project, with a board, scopes, and
+deliveries refused without a recorded green check): `npm run supervision -- <project>`, rules
+in the on-demand skill `/supervision`, details in `TOOLS/supervision/README.md`.
 
-**Windows** : si `wmux ping` échoue → proposer activement l'installation à l'utilisateur.
-Expliquer : wmux = panel navigateur visible en temps réel, intégré au terminal CLI.
-- Si l'utilisateur accepte : guider l'install, puis mettre `wmux_status: operational` dans relay-brain.yml.
-- Si refus : mettre `wmux_status: unavailable` et continuer sans.
+## Skills
 
-**macOS** : wmux non disponible nativement. Proposer des alternatives (iTerm2, Warp, etc.). Mettre `wmux_status: unavailable` pour l'instant.
+Sources live in `SKILLS/`, but Claude Code only discovers `.claude/skills/`:
+`node TOOLS/skills-link.mjs` creates the links (and copies `RULES/` to `.claude/rules/`). The
+setup hook re-runs it at every start, because links do not survive sync.
 
-**Linux** : wmux non disponible nativement. Alternative : tmux (déjà utilisé par `relay-agent-loop.sh`). Mettre `wmux_status: unavailable` si non applicable.
+On-demand skills (`disable-model-invocation: true`, zero tokens until invoked) are listed by
+name in the injected state: the user types `/name`, the agent reads `SKILLS/<name>/SKILL.md`.
+Loading modes, description budget, third-party skills: `RULES/skills.md`.
 
-Si wmux opérationnel :
-- Navigation web visible : `wmux browser open <url>` → `wmux browser snapshot`
-- Plugin orchestrateur (Claude uniquement) : `/wmux:orchestrate "<tâche>"`
+## Token economy
 
----
+This is what Relay is for. Two levers: **the RAG** (query before you read) and **a
+token-optimizing CLI proxy** if one is installed (e.g. RTK: prefix shell commands with it,
+including inside `&&` chains). Before adding anything to the context loaded every session,
+measure (`/context`): an `@include` chain once reached 21 KB without anyone noticing
+(DECISIONS, 2026-10-14).
 
-## Plan des dossiers
+## Starting a project
 
-| Dossier | Rôle | Chemin relatif |
-|---------|------|---------------|
-| `PROJECTS/` | Un sous-dossier par projet. Chaque projet a AGENTS.md, CLAUDE.md, ANTIGRAVITY.md, .relay-bootstrap.md | `./PROJECTS/{nom}/` |
-| `SKILLS/` | Tables de routage de commandes, partagées entre agents. Un dossier par projet ayant des skills. | `./SKILLS/{nom}/SKILL.md` |
-| `TOOLS/` | Scripts utilitaires standalone. Interface standard : args CLI, exit 0/1, `--json` optionnel. | `./TOOLS/{script}` |
-| `RELAY_LOG.md` | Journal partagé cross-agents, cross-projets. Batch-summary par tâche significative. | `./RELAY_LOG.md` |
-| `relay-brain.yml` | Hub d'état central : capacités agents, registry projets, claims, conventions. | `./relay-brain.yml` |
-
----
-
-## Conventions partagées
-
-- **Encodage** : toujours UTF-8 sans BOM. Ne jamais utiliser PowerShell pour écrire du texte accentué — utiliser write_file/replace ou Node.js.
-- **Atomicité** : lire → modifier → sauvegarder en une seule opération.
-- **Batch logging** : 1 ligne par batch dans RELAY_LOG.md. Pas une ligne par fichier traité.
-- **Format RELAY_LOG** : `## YYYY-MM-DD — Agent (projet : sujet)` + max 5 bullets, 15 mots chacun. Pas de sous-listes imbriquées.
-- **Claims** : ajouter un claim dans `relay-brain.yml → projects.{nom}.claims[]` avant toute tâche longue. Format : `{id, agent, status: in_progress|done|blocked, started_at, note}`.
-- **Pas d'écrasement** : ne jamais écraser le travail d'un autre agent sans le documenter dans RELAY_LOG.md.
-- **cross_project_log** : garder 30 derniers jours dans relay-brain.yml. Archiver dans `relay-brain-history.yml`.
-
----
-
-## Protocole "qui fait quoi" sur un nouveau projet
-
-1. Lire `relay-brain.yml → conventions` (propriétaires par défaut)
-2. Si le projet a des besoins différents → ouvrir un débat dans `RELAY_LOG.md`
-3. Ne pas assumer que la division d'un projet existant s'applique au nouveau
-4. Documenter la division retenue dans `.relay-bootstrap.md` local du projet
-
----
-
-## Checklist — démarrer un nouveau projet
-
-- [ ] Copier `PROJECTS/_template/` → `PROJECTS/{nom}/`
-- [ ] Remplir `PROJECTS/{nom}/AGENTS.md` (rôles, structure, conventions)
-- [ ] Adapter `PROJECTS/{nom}/.relay-bootstrap.md` (overrides par rapport au générique)
-- [ ] Ajouter projet dans `relay-brain.yml → projects:`
-- [ ] Créer `SKILLS/{nom}/SKILL.md` si le projet a des modes/commandes spécifiques
-- [ ] Documenter la division des rôles dans `RELAY_LOG.md`
-
-Raccourci : `node TOOLS/init-relay-project.mjs {nom}` (automatise les étapes 1, 3, 4).
-
----
-
-## Ajouter un nouveau CLI agent
-
-1. Créer `{AGENT}.md` à la racine de RELAY_ROOT (même pattern que CLAUDE.md / ANTIGRAVITY.md)
-2. Ce fichier commence par `@./AGENTS.md`, puis déclare les capacités et limites spécifiques
-3. Ajouter le nouvel agent dans `relay-brain.yml → agents:`
-4. Si le CLI supporte les slash commands : créer `.{agent}/commands/framework-init.{ext}` avec le wizard adapté
-5. Documenter dans RELAY_LOG.md
+`node TOOLS/new-project.mjs <name>` creates `PROJECTS/<name>/` from `_template/` and registers
+it in the brain. Then fill in its `AGENTS.md` (role split, structure, local rules), set
+`intent:` only for a terminal state, `npm run state`, and log the start. A versioned project:
+clone it outside `PROJECTS/` and declare its absolute `path`. Do not assume an existing
+project's role split applies to a new one.

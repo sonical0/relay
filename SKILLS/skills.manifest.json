@@ -1,0 +1,21 @@
+{
+  "$comment": "Which skills exist. `node TOOLS/skills-link.mjs` links each one into .claude/skills/ (Claude Code only discovers that folder) and copies RULES/*.md into .claude/rules/. Links do not survive cloud sync: the setup hook re-runs the script at every start. The loading mode is NOT here: it lives in each SKILL.md frontmatter (`disable-model-invocation: true` = on demand, zero tokens until invoked). See RULES/skills.md.",
+  "$fields": {
+    "name": "directory name under .claude/skills/, and the name the user invokes with /name",
+    "src": "path under SKILLS/, may be nested (e.g. 'web/scraping')",
+    "why": "one line: why this skill exists and why its loading mode, so the choice survives the person who made it"
+  },
+  "target": ".claude/skills",
+  "skills": [
+    {
+      "name": "inbox",
+      "src": "inbox",
+      "why": "on demand: proposal format and /inbox review; invoked deliberately"
+    },
+    {
+      "name": "supervision",
+      "src": "supervision",
+      "why": "on demand: read by supervisor, managers and workers when a supervised run starts"
+    }
+  ]
+}

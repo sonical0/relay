@@ -1,261 +1,214 @@
-<div align="center">
-
 # Relay
 
-**Un framework de coordination portable pour les workflows multi-agents IA en ligne de commande**
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Python](https://img.shields.io/badge/Python-3.10+_(optionnel)-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)]()
 
-[![License: MIT](https://img.shields.io/badge/Licence-MIT-yellow?style=for-the-badge)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
-[![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Platform](https://img.shields.io/badge/Plateforme-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)]()
-[![Last Commit](https://img.shields.io/github/last-commit/sonical0/relay?style=for-the-badge)](https://github.com/sonical0/relay/commits/master)
+Un framework portable de coordination pour plusieurs agents IA en ligne de commande,
+construit autour d'une contrainte : **le contexte est le budget**.
 
 [Read in English](README.md)
 
-</div>
-
 ---
 
-## Le problème
+## Vue d'ensemble
 
-Les agents IA en ligne de commande — Claude Code, Antigravity CLI (agy), Gemini CLI — sont individuellement capables de tâches complexes en plusieurs étapes. Le problème apparaît quand plusieurs d'entre eux travaillent sur un même projet : aucune mémoire partagée, aucune conscience de ce que fait l'autre, aucun mécanisme pour diviser le travail. Le contexte se perd entre les sessions. Le travail est dupliqué. Un agent défait ce que l'autre vient de faire.
+Les agents IA en ligne de commande (Claude Code, Gemini CLI et les autres) mènent bien un
+travail complexe chacun de leur côté. Le problème apparaît quand plusieurs d'entre eux
+travaillent des mois sur les mêmes projets, depuis plusieurs machines : pas de mémoire
+partagée, aucune idée de ce que l'autre a fait, aucun moyen peu coûteux d'arriver à froid et
+de savoir où en sont les choses.
 
-## La solution
-
-Relay est une couche de coordination en étoile (hub-and-spoke) qui s'intercale entre vos agents et vos projets. À chaque démarrage, chaque agent lit le même point d'entrée, consulte le même fichier d'état partagé, ajoute une entrée dans le même journal d'activité, et suit le même protocole pour revendiquer une tâche avant de la commencer.
-
-```
-                        RELAY ROOT
-                            │
-          ┌─────────────────┼──────────────────┐
-          │                 │                  │
-      CLAUDE.md       ANTIGRAVITY.md     {agent}.md
-          │                 │
-     relay-brain.yml ◄──────┘    (état partagé)
-     RELAY_LOG.md    ◄──────┘    (journal partagé)
-     RELAY_CHAT.md   ◄──────┘    (canal live)
-          │
-    ┌─────┴──────┐
-    │            │
-PROJECTS/     SKILLS/
-project-a/    project-a/SKILL.md
-project-b/    project-b/SKILL.md
-```
-
-Le dépôt Git contient le **protocole** (agnostique aux agents, partageable, stable). Les données personnelles des projets vivent dans la synchronisation cloud. Un nouveau poste est opérationnel en trois commandes.
+La solution évidente, faire lire l'état partagé à chaque agent au démarrage, est la mauvaise :
+elle coûtait 12 000 à 15 000 jetons par session avant tout travail. Relay fait l'inverse. Un
+hook injecte un **état prédigéré d'environ 1,4 Ko, ciblé sur le projet où l'on se trouve**, et
+le réinjecte après chaque compaction. Tout le reste se consulte à la demande, par un index de
+recherche local. Ce que lit l'agent, c'est la réponse, pas le corpus.
 
 ---
 
 ## Fonctionnement
 
-**`AGENTS.md`** — Point d'entrée universel. Chaque agent CLI lit ce fichier en premier. Définit le protocole d'entrée, l'organisation des répertoires, les conventions partagées, et la procédure de premier lancement.
+**Chaque règle a un seul propriétaire, sur trois niveaux.** `AGENTS.md` ne garde que les
+règles universelles (chargées à chaque session). `RULES/*.md` porte les règles par zone, avec
+un frontmatter `paths:` : elles se chargent la première fois que l'agent touche un fichier
+concerné. `DECISIONS.md` porte les raisons et les mesures ; il est indexé par le RAG et
+jamais chargé d'office.
 
-**`relay-brain.yml`** — Hub d'état partagé. Répertorie les agents disponibles, les projets enregistrés, et les tâches actuellement revendiquées. Les agents écrivent des claims avant de commencer des tâches longues.
+**L'état est injecté, pas cherché.** `TOOLS/relay-state.mjs` construit `.relay-state.md` et un
+`.relay-state/<projet>.md` par projet : statut, dernières sessions *de ce projet*, fichiers de
+règles locaux, skills à la demande. Le hook `SessionStart` (`startup|resume|clear|compact`)
+choisit le bon d'après le `cwd`.
 
-**`RELAY_LOG.md`** — Journal d'activité partagé. Les agents y écrivent des résumés par batch (max 5 bullets, 15 mots chacun). Surface de coordination principale entre agents asynchrones.
+**Le statut est mesuré, l'intention est déclarée.** `relay-brain.yml` ne porte que l'intention
+humaine. `TOOLS/project-scan.mjs` déduit actif / au repos / en sommeil des dates git ou des
+fichiers. Si vous déclarez un projet terminé alors qu'il bouge encore, le scan signale le
+conflit.
 
-**`SKILLS/`** — Tables de routage de commandes par projet. Définit les modes disponibles, quels fichiers charger pour chaque mode, quand lancer des sous-agents, et comment détecter l'intention automatiquement.
+**Un seul écrivain par fichier, pour que plusieurs machines ne s'écrasent jamais.** Chaque
+machine écrit son journal dans `LOG/<hôte>.md` ; `RELAY_LOG.md` est généré par fusion. Le brain
+peut être découpé en un fichier par machine, par projet et par note (`BRAIN/`) : les
+retouches sont reportées par empreinte, les vrais conflits mis de côté. Les fichiers générés
+ne sont jamais synchronisés : chaque machine reconstruit les siens.
 
-**`TOOLS/`** — Scripts utilitaires partagés. Chaque outil expose une interface CLI standard (arguments, codes de sortie, `--json` optionnel) sans chemins hardcodés.
+**La fin de réponse ne coûte presque rien.** Le hook `Stop` demande une entrée de journal une
+fois par session, puis lance un seul processus détaché, qui ne reconstruit l'état et l'index
+**que si leurs entrées ont changé** (environ 1,1 s, mesuré).
+
+**Chercher avant de lire.** `TOOLS/rag-index.mjs` indexe règles, décisions, skills, projets,
+journal et brain dans un index BM25 en JavaScript pur, sans dépendance native.
+
+**Une skill ne coûte rien tant qu'on ne s'en sert pas.** Une skill marquée
+`disable-model-invocation: true` n'a pas de description dans le prompt système ; son nom
+figure dans l'état injecté et on l'appelle par `/nom`. Les skills natives sont réservées à ce
+qu'un agent ne penserait pas à chercher.
+
+**Les agents proposent, l'utilisateur décide.** Ce qui a été appris et mérite de durer part
+dans `INBOX/<hôte>/` sous forme de proposition, revue par lot avec `/inbox`. Aucune session ne
+réécrit les règles de son propre chef.
+
+**Plusieurs agents sur un même projet : la supervision.** `TOOLS/supervision/` fait tourner un
+tableau de bord (superviseur, managers par périmètre, workers). Il génère pour chaque agent
+une fiche de reprise que le hook de démarrage réinjecte après `/clear` ou une compaction. Il
+refuse une livraison sans branche, sans SHA ou sans check vert **enregistré par le tableau**.
+En Python, optionnel, avec ou sans wmux.
 
 ---
 
-## Stack
+## Ce qui a été mesuré
 
-| Couche | Technologie |
-|--------|-------------|
-| État et configuration | YAML, Markdown |
-| Scripts utilitaires | Node.js 18+ (ESM), Python 3.8+ |
-| Intégration agents | Claude Code CLI, Antigravity CLI (agy) / Gemini CLI |
-| Message broker | HTTP + SQLite (`relay-server.py`, port 7432) |
-| Système de hooks | Hooks Claude Code (session / setup / stop) |
-| Versionnage du framework | Git |
-| Synchronisation données perso | MEGA / Nextcloud (ou tout service de sync) |
-| Optimisation tokens | RTK — Rust Token Killer (optionnel) |
+Chaque règle ci-dessus vient de la mesure de la version précédente, sur le système interne
+dont Relay est la forme publique (un utilisateur, cinq machines, une douzaine de projets).
+Raisons et détails : [`DECISIONS.md`](DECISIONS.md).
+
+| Constat | Mesure |
+|---|---|
+| Le tour de conversation est l'unité qui coûte cher | 4 000 à 11 000 jetons par tour, contre 614 pour toute la consolidation du contexte |
+| Travailler depuis le dossier du projet | Même question : 3 tours / 96 665 jetons depuis la racine, **1 tour / 25 728 jetons** depuis le projet |
+| Un ordre de lecture au démarrage coûte plus qu'il n'injecte | ~600 jetons injectés, 12 à 15 k jetons de lectures provoquées |
+| Seules les règles universelles restent dans le fichier toujours chargé | 16,2 Ko → environ 10 Ko, les règles par zone passent dans `RULES/` |
+| Les descriptions de skills coûtent à chaque session | ~0,37 jeton par octet, à chaque session ; zéro avec `disable-model-invocation` |
+| Tout reconstruire après chaque réponse gaspille des écritures | ~220 fichiers identiques réécrits par réponse → seulement si les entrées changent, 1,1 s en détaché |
+| Deux machines sur un même journal perdent des entrées | 2 entrées perdues en une journée → un fichier par machine, plus aucune perte depuis |
+| La skill de supervision était lue en entier par chaque rôle | découpée par rôle : worker −72 %, superviseur −33 % |
+
+La règle qui compte le plus : **avant d'ajouter quoi que ce soit au contexte chargé à chaque
+session, mesurer.** Une chaîne `@include` a atteint 21 Ko sans que personne le voie.
 
 ---
 
 ## Démarrage rapide
 
-### Prérequis
-
-- **Node.js 18+**
-- **Claude Code CLI** et/ou **Antigravity CLI** (`agy`) / **Gemini CLI**, authentifiés
-- **Git**
-
-### Installation
-
 ```bash
-git clone https://github.com/sonical0/relay.git
-cd relay
-claude .
+git clone https://github.com/sonical0/relay && cd relay
+npm run init
 ```
 
-Puis lancer le wizard d'initialisation :
+`npm run init` crée le brain avec cette machine, installe les hooks, lie les skills, calcule
+statuts, index et état, puis affiche ce qu'il reste à faire. On peut le relancer sans risque.
+Procédure complète, permissions et passage depuis Relay 2 : [`SETUP.md`](SETUP.md).
 
-```
-/framework-init
-```
-
-Le wizard va :
-1. Détecter votre OS et copier `relay-brain.template.yml` → `relay-brain.yml`
-2. Installer les trois hooks Claude Code dans `~/.claude/settings.json`
-3. Vérifier la disponibilité de wmux, RTK et Antigravity CLI
-4. Afficher un récapitulatif de configuration
-
-> La procédure de configuration manuelle complète est documentée dans [`SETUP.md`](SETUP.md).
+| Commande | Rôle |
+|---|---|
+| `npm run init` | Configurer cette machine (idempotent ; `-- --dry-run` pour prévisualiser) |
+| `npm run state` | Fusionner le journal, recalculer statuts, index et état injecté |
+| `npm run rag -- --query "…"` | Interroger l'index (`--type rules\|convention\|project\|skill\|log\|brain`, `--full`) |
+| `npm run brain -- --migrate` | Découper le brain pour plusieurs machines (une fois) |
+| `npm run hooks` | Réparer les hooks seuls |
+| `npm run supervision -- <projet>` | Lancer une session multi-agents supervisée |
+| `npm test` | Lancer les tests des outils (dossiers temporaires uniquement) |
 
 ---
 
-## Structure du projet
+## Arborescence
 
 ```
 relay/
-  AGENTS.md                       Point d'entrée universel — lu en premier par tous les agents CLI
-  CLAUDE.md                       Claude Code : @relay-brain-ref.md + capacités, limites
-  ANTIGRAVITY.md                  Antigravity CLI (agy) : capacités, limites, sandbox
-  GEMINI.md                       Alias compat Gemini CLI → @ANTIGRAVITY.md
-  relay-bootstrap.md              Protocole d'entrée — 8 étapes obligatoires, chemins portables
-  relay-brain.template.yml        Template live slim — copier en relay-brain.yml au setup
-  relay-brain-ref.template.yml    Template référence statique (capacités agents, conventions)
-  relay-brain-ref.md              Référence statique — @include dans CLAUDE.md
-  relay-brain.yml                 Hub d'état actif — gitignored, synchronisé via cloud
-  RELAY_LOG.md                    Journal d'activité partagé — cross-agents, cross-projets
-  RELAY_CHAT.md                   Canal live inter-agents — gitignored, synchronisé via cloud
-
-  PROJECTS/
-    _template/                    Fichiers de départ pour un nouveau projet (committé)
-    {nom-du-projet}/              Un répertoire par projet (cloud uniquement, gitignored)
-
-  SKILLS/
-    _template/SKILL.md            Template de skill vierge (committé)
-    {nom-du-projet}/SKILL.md      Table de routage par projet (cloud uniquement, gitignored)
+  AGENTS.md                Règles universelles, lues en premier par tout agent
+  CLAUDE.md / GEMINI.md    Capacités par agent (minces, incluent AGENTS.md)
+  RULES/                   Règles par zone, chargées au contact des fichiers concernés
+  DECISIONS.md             Pourquoi chaque règle existe, avec les mesures (RAG : convention)
+  relay-brain.template.yml Machines, agents, projets, intention ; devient relay-brain.yml
+  relay-start-hook.js      SessionStart : injecte l'état ciblé
+  relay-setup-hook.js      Installe et répare les hooks
+  relay-stop-hook.js       Stop : contrôle du journal, travaux de fin de réponse détachés
+  LOG/<hôte>.md            Journal, un fichier par machine (personnel)
+  INBOX/                   Propositions en attente de /inbox (personnel)
 
   TOOLS/
-    relay-server.py               Message broker — HTTP + SQLite, port 7432
-    relay-chat.mjs                CLI de chat live — send, poll, read, status
-    relay-agent-loop.sh           Listener agent — poll broker, dispatch vers agy
-    relay-server-start.sh         Démarrer le broker en arrière-plan (idempotent)
-    init-relay-project.mjs        Initialiser un nouveau projet depuis le template
+    relay-init.mjs         Configuration d'une machine en une commande
+    relay-after-turn.mjs   Travaux de fin de réponse, déclenchés seulement si les entrées ont changé
+    relay-log.mjs          Fusionne LOG/*.md dans RELAY_LOG.md
+    relay-brain.mjs        Découpage optionnel du brain dans BRAIN/
+    relay-state.mjs        Construit l'état injecté
+    project-scan.mjs       Déduit le statut des projets à partir du disque
+    rag-index.mjs / rag-query.mjs   Index BM25 et requêtes
+    skills-link.mjs        Lie les skills, copie RULES/ dans .claude/rules/
+    log-rotate.mjs         Rotation mensuelle du journal et des notes du brain
+    new-project.mjs        Crée et déclare un projet
+    supervision/           Tableau multi-agents, CLI, hook de garde (Python, optionnel)
+    tests/                 node --test, dossiers temporaires uniquement
 
-  .claude/hooks/
-    relay-session-hook.js         UserPromptSubmit : injecter le contexte boot Relay
-    relay-setup-hook.js           SessionStart : vérifier l'installation des hooks
-    relay-stop-hook.js            Stop : vérifier que RELAY_LOG.md est à jour
+  SKILLS/                  inbox et supervision livrées ; les vôtres restent personnelles
+  PROJECTS/_template/      Fichiers de départ d'un projet
+
+  généré, jamais commité ni synchronisé :
+  RELAY_LOG.md  relay-projects.derived.yml  .relay-state*  .relay-rag.json
+  .claude/skills/  .claude/rules/  .relay-supervision/
 ```
 
 ---
 
-## Modèle de synchronisation
+## Règles de conception
 
-Le framework sépare deux préoccupations : le **protocole** (partageable, stable, dans Git) et les **données** (personnelles, volatiles, dans le cloud).
+Chacune existe parce que son contraire a été essayé.
 
-| Contenu | Git | Sync cloud |
-|---------|:---:|:----------:|
-| AGENTS.md, CLAUDE.md, ANTIGRAVITY.md, GEMINI.md | ✅ | |
-| relay-bootstrap.md, relay-brain.template.yml, relay-brain-ref.md | ✅ | |
-| PROJECTS/_template/, SKILLS/_template/ | ✅ | |
-| TOOLS/relay-*.*, TOOLS/init-relay-project.mjs | ✅ | |
-| .claude/hooks/relay-*.js | ✅ | |
-| relay-brain.yml (état actif) | | ✅ |
-| RELAY_LOG.md (historique complet) | | ✅ |
-| PROJECTS/{projet}/ (données du projet) | | ✅ |
-| SKILLS/{projet}/SKILL.md | | ✅ |
-
-Le dépôt Git ne contient **aucune donnée personnelle** et peut être cloné proprement sur n'importe quel poste.
-
----
-
-## Le framework grandit avec vous
-
-Relay est conçu pour accumuler de la valeur de manière organique au fil du travail.
-
-- **Les skills** sont ajoutés dès qu'un workflow récurrent est formalisé — ad hoc la première fois, une entrée de skill à la troisième.
-- **Les tools** suivent un protocole de promotion — un script rejoint `TOOLS/` uniquement après avoir prouvé son utilité sur au moins deux projets distincts.
-- **Les nouveaux agents** s'intègrent sans rien casser — un nouveau fichier `{AGENT}.md` et une entrée dans `relay-brain.yml`.
-
-Le framework grossit dans le cloud et reste léger dans Git.
+- **Un seul propriétaire par règle.** Une règle écrite à deux endroits finit par diverger.
+- **Le généré et le manuel ne se mélangent jamais.** Un fichier est écrit par un script ou par
+  un humain, jamais par les deux.
+- **Un seul écrivain par fichier partagé.** Une synchro fichier par fichier garde la dernière
+  copie et jette l'autre.
+- **Écrire de façon atomique, valider avant la bascule.** `lib/atomic.mjs` : fichier temporaire,
+  nouvel essai si Windows verrouille le fichier, relecture avant le renommage.
+- **Comparer les chemins par identité, pas par orthographe.** Sous Windows, un même dossier
+  arrive en forme courte 8.3 ou longue, dans n'importe quelle casse ; une comparaison stricte
+  échoue sans rien dire.
+- **Ne commiter que ce qu'on a modifié, vérifier avant de pousser.** `git push` publie toute la
+  branche, y compris les commits des autres sessions.
+- **Ne jamais croire un « fini » auto-déclaré.** Relancer les vérifications quand un agent
+  délégué rend son travail.
+- **Mesurer avant d'ajouter** au contexte toujours chargé.
 
 ---
 
-## Ajouter un nouveau projet
+## Ajouter un agent CLI
 
-```bash
-node TOOLS/init-relay-project.mjs mon-projet
-```
+1. Créer `{AGENT}.md` à la racine : inclure `AGENTS.md`, puis les capacités et les limites.
+2. L'ajouter sous `agents:` dans `relay-brain.yml`.
+3. Si l'outil accepte les commandes slash, ajouter `.{agent}/commands/framework-init.{ext}`.
 
-Crée `PROJECTS/mon-projet/` depuis le template et l'enregistre dans `relay-brain.yml`. Remplir ensuite `PROJECTS/mon-projet/AGENTS.md` pour définir la division des rôles et les conventions locales.
-
----
-
-## Ajouter un nouvel agent CLI
-
-1. Créer `{AGENT}.md` à la racine — commencer par `@./AGENTS.md`, puis déclarer les capacités et contraintes.
-2. Ajouter une entrée sous `agents:` dans `relay-brain.yml`.
-3. Créer optionnellement `.{agent}/commands/framework-init.{ext}` pour un wizard slash command.
-4. Logger l'ajout dans `RELAY_LOG.md`.
-
-Tout agent qui lit `AGENTS.md` et suit le protocole d'entrée est un participant de premier ordre.
+Les agents autres que Claude ne lisent pas `.claude/skills/` : les renvoyer vers
+`SKILLS/<nom>/SKILL.md`.
 
 ---
 
-## Exemple de configuration
+## Ce qui a été retiré, et pourquoi
 
-| Rôle | Agent | Responsabilités |
-|------|-------|----------------|
-| Orchestrateur | Claude Code | Évaluation, génération PDF, merges, raisonnement long |
-| Worker | Antigravity CLI (`agy`) | Scraping, traitement batch, vérifications liveness |
-
-```
-Hooks    : relay-session-hook.js (contexte boot) + relay-stop-hook.js (vérification log)
-Broker   : relay-server.py sur le port 7432 — délégation via relay-chat.mjs
-Sync     : relay-brain.yml + RELAY_LOG.md + PROJECTS/ synchronisés via cloud
-Tokens   : proxy RTK — réduction 60-90% de l'output CLI via hook PreToolUse
-```
-
----
-
-## Optimisation des tokens
-
-Relay est conçu pour être économe en tokens à chaque couche. Cinq mécanismes se combinent pour produire une réduction estimée de **70–80%** de la consommation de tokens sur une session multi-agents typique.
-
-| Mécanisme | Économies estimées | Base de calcul |
-|-----------|:-----------------:|----------------|
-| **Proxy RTK** | 60–90% sur l'output CLI | Filtre le bruit de `git`, `npm`, `cargo`, `pytest`… avant que l'output n'atteigne l'agent. Documenté par RTK. |
-| **Split brain + prompt caching** | ~95% sur les lectures de référence statique | `relay-brain-ref.md` (~1 500 tokens) est `@include` dans `CLAUDE.md`. Cache hit = 5% du coût plein. Seul l'état volatile (~400 tokens) est relu à chaque session. |
-| **Déduplication de session** | ~87% sur l'injection du contexte de boot | Le hook tourne une fois par fenêtre de 30 minutes, pas à chaque prompt. Sur une session typique (30 prompts, 4 fenêtres) : 4 × 900 tokens au lieu de 30 × 900. |
-| **Format log compact** | ~75% sur les lectures du log | Entrées limitées à 5 bullets × 15 mots (~75 mots) contre ~300 mots en format non structuré — même contexte historique pour un quart du coût. |
-| **Brain slim** | ~79% par lecture du brain | Seul l'état volatile (~400 tokens) est relu, pas le contenu combiné statique+volatile (~1 900 tokens). |
-
-> **Estimation combinée** — sur une session typique de 8h multi-agents (100 prompts, 20 commandes CLI, 3 projets actifs), ces mécanismes réduisent la consommation totale de tokens de ~420 000 tokens (sans optimisation) à ~90 000 tokens.
-
-### Configuration RTK
-
-[RTK (Rust Token Killer)](https://github.com/reachingforthejack/rtk) est un proxy CLI optionnel mais recommandé :
-
-```bash
-# Installer
-cargo install rtk   # ou voir la doc RTK pour l'installation par binaire
-
-# Vérifier
-rtk --version
-rtk gain            # voir les économies de tokens
-```
-
-Une fois installé, RTK est configuré comme hook `PreToolUse` dans `~/.claude/settings.json`. Le wizard `/framework-init` gère cette étape automatiquement.
-
----
-
-## Contribuer
-
-Les contributions sont les bienvenues. Ouvrir une issue pour discuter des changements avant de soumettre une pull request.
-
-- Commits focalisés et descriptifs
-- Aucun chemin absolu — tout doit se résoudre relativement à `RELAY_ROOT`
-- Aucune donnée personnelle dans les fichiers commités
+- **`claims[]`**, **`needs_bootstrap_sync`** : aucun écrivain, aucun lecteur en quatre mois.
+- **Le protocole d'entrée obligatoire en 7 étapes** : remplacé par l'état injecté.
+- **Le hook d'état sur `UserPromptSubmit`** : ses marqueurs par session faisaient 40 lignes de
+  contournement, et son contexte disparaissait à la compaction. `SessionStart` fait les deux
+  nativement.
+- **Le mode `load: native | rag` du manifeste** : il refaisait à la main ce que
+  `disable-model-invocation` fait nativement.
+- **Une skill de routage** : 0 déclenchement sur 3. **Des liens de skills par projet** : git
+  suivait les jonctions.
+- **Le broker et le chat temps réel entre agents** : la coordination passe par le journal,
+  le tableau de bord et l'état injecté.
 
 ---
 
 ## Licence
 
-[MIT](LICENSE) — © 2026 sonical0
+MIT, voir [LICENSE](LICENSE).
