@@ -2,58 +2,39 @@ name = "framework-init"
 description = "Set Relay up on this machine: brain, hooks, skills, status, index."
 
 prompt = """
-Run the Relay initialization for a new machine. Work through the steps in order and
-report what you did at the end. Do not skip a step silently — if one fails, say so and
-continue with the rest.
+Run the Relay initialization for this machine and report what happened. Do not skip a
+step silently — if one fails, say so and continue with the rest.
 
-## 1. Detect the environment
+## 1. Check
 
-- OS and shell (uname -s, or PowerShell presence on Windows)
-- Hostname — $env:COMPUTERNAME on Windows, hostname elsewhere. This is the key used
-  under `machines:` in the brain.
 - node --version — Relay needs Node 20+. Stop here if it is older.
+- Hostname ($RELAY_HOST if set, else $env:COMPUTERNAME / hostname): the key under
+  `machines:` in the brain.
 
-## 2. The brain
+## 2. Run
 
-If ./relay-brain.yml is missing, copy relay-brain.template.yml to it.
+    npm run init -- --dry-run
+    npm run init
 
-Then edit it — it is a manual file, so make the edits explicit and show them:
+TOOLS/relay-init.mjs creates relay-brain.yml with this machine if missing, installs the
+dependency, links skills and copies rules, derives status, builds the index and the
+injected state. It also installs Claude Code hooks into the user's home configuration:
+you are sandboxed to RELAY_ROOT, so that step may fail for you. Say so plainly and tell the
+user to run `npm run hooks` from a Claude Code session or a plain terminal. Relay works
+without hooks; you then read .relay-state.md yourself at the start of a session.
 
-- add an entry under `machines:` keyed by this hostname, with relay_root set to the
-  absolute path of this directory, plus os and shell
-- under `agents:`, keep only the CLIs actually installed
-- leave `projects:` alone; projects are added with node TOOLS/new-project.mjs
+## 3. The brain
 
-Never invent an `intent:` value. It is the user's to declare.
+Under `agents:` in relay-brain.yml, keep only the CLIs actually installed. Leave
+`projects:` alone; projects are added with node TOOLS/new-project.mjs. Never invent an
+`intent:` value: it is the user's to declare.
 
-## 3. Bootstrap
+## 4. Verify and report
 
-    npm run bootstrap
-
-Installs the one dependency, links native skills, derives project status, builds the
-injected state and the search index. Report the counts it prints.
-
-## 4. Hooks
-
-Hook installation targets Claude Code settings. If Claude Code is present on this
-machine, tell the user to run `node relay-setup-hook.js` from a Claude Code session,
-or run it directly. If it is not installed, skip this step and say so: Relay works
-without hooks, you simply lose the state injected at startup and have to read
-.relay-state.md yourself at the beginning of a session.
-
-Note your own sandbox: you are restricted to RELAY_ROOT and below, so you cannot write
-to the user's home configuration. Say that plainly instead of failing quietly.
-
-## 5. Verify and report
-
-    npm run state
+    npm test
     npm run rag -- --query "atomic write validate before swap"
 
-The RAG query should surface the writing-conventions section of AGENTS.md without opening a file (SETUP.md ranks first, since it quotes the query itself). Then summarise:
-OS and hostname, which agents were found, how many skills are native versus on demand,
-how many projects were detected, and anything that failed.
-
-Finally, tell the user the one habit that matters: open the agent inside
-PROJECTS/<name>/, not at the Relay root — the injected state is then about that
-project.
+Summarise: OS and hostname, agents found, on-demand vs native skills, projects detected,
+and anything that failed. Finally, the one habit that matters: open the agent inside the
+project directory, not at the Relay root — the injected state is then about that project.
 """

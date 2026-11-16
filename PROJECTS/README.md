@@ -23,7 +23,7 @@ PROJECTS/<name>/
 
 There is no per-project bootstrap file and no per-project log stub any more. Both
 existed to repeat what the framework already says; a rule has one owner. Local rules
-go in `AGENTS.md`, activity goes in the global `RELAY_LOG.md`.
+go in `AGENTS.md`, activity goes in the journal (`LOG/<host>.md`, merged into `RELAY_LOG.md`).
 
 ## Work from the project directory
 

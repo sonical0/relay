@@ -1,7 +1,12 @@
 # Relay
 
-Un framework de coordination portable pour agents CLI multiples, construit autour
-d'une seule contrainte : **le contexte est le budget**.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Python](https://img.shields.io/badge/Python-3.10+_(optionnel)-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)]()
+
+Un framework portable de coordination pour plusieurs agents IA en ligne de commande,
+construit autour d'une contrainte : **le contexte est le budget**.
 
 [Read in English](README.md)
 
@@ -9,112 +14,110 @@ d'une seule contrainte : **le contexte est le budget**.
 
 ## Vue d'ensemble
 
-Les agents CLI — Claude Code, Gemini CLI et leurs pairs — traitent chacun très bien
-des tâches complexes en plusieurs étapes. Le problème apparaît quand plusieurs d'entre
-eux travaillent sur les mêmes projets pendant des mois : aucune mémoire partagée,
-aucune idée de ce que l'autre a fait, aucun moyen économique d'arriver à froid et de
-savoir où en sont les choses.
+Les agents IA en ligne de commande (Claude Code, Gemini CLI et les autres) mènent bien un
+travail complexe chacun de leur côté. Le problème apparaît quand plusieurs d'entre eux
+travaillent des mois sur les mêmes projets, depuis plusieurs machines : pas de mémoire
+partagée, aucune idée de ce que l'autre a fait, aucun moyen peu coûteux d'arriver à froid et
+de savoir où en sont les choses.
 
-La correction évidente consiste à faire lire l'état partagé à chaque démarrage. C'est
-ce que faisait la première version de Relay, et c'est la mauvaise correction : un
-protocole d'entrée obligatoire « lis le brain, lis le log » coûtait 12 000 à 15 000
-tokens par session avant le moindre travail, et grossissait à chaque fois que le
-framework grossissait.
-
-Relay fait désormais l'inverse. Un hook injecte un **état pré-digéré plafonné à
-1,4 Ko, une seule fois par session**, choisi selon le dossier où l'on se trouve. Tout
-le reste est à la demande, via un index de recherche local plutôt qu'en ouvrant des
-fichiers. Le statut des projets est dérivé du disque au lieu d'être tenu à la main :
-il ne peut donc pas se périmer en silence. Ce que l'agent lit, c'est la réponse, pas
-le corpus.
+La solution évidente, faire lire l'état partagé à chaque agent au démarrage, est la mauvaise :
+elle coûtait 12 000 à 15 000 jetons par session avant tout travail. Relay fait l'inverse. Un
+hook injecte un **état prédigéré d'environ 1,4 Ko, ciblé sur le projet où l'on se trouve**, et
+le réinjecte après chaque compaction. Tout le reste se consulte à la demande, par un index de
+recherche local. Ce que lit l'agent, c'est la réponse, pas le corpus.
 
 ---
 
 ## Fonctionnement
 
-**`AGENTS.md` est la seule source des règles.** Une règle a exactement un fichier
-propriétaire ; toute duplication est un bug. Les capacités propres à chaque agent
-vivent dans `CLAUDE.md` ou `GEMINI.md`, fichiers minces qui en héritent. Aucun second
-document ne redit le protocole — c'est précisément ce qu'avait la version précédente,
-à trois endroits, et ils avaient divergé.
+**Chaque règle a un seul propriétaire, sur trois niveaux.** `AGENTS.md` ne garde que les
+règles universelles (chargées à chaque session). `RULES/*.md` porte les règles par zone, avec
+un frontmatter `paths:` : elles se chargent la première fois que l'agent touche un fichier
+concerné. `DECISIONS.md` porte les raisons et les mesures ; il est indexé par le RAG et
+jamais chargé d'office.
 
-**L'état est injecté, pas cherché.** `TOOLS/relay-state.mjs` construit
-`.relay-state.md` (vue générale) et un `.relay-state/<projet>.md` par projet : statut
-courant, dernières sessions *sur ce projet*, fichiers de règles locales existants,
-skills à la demande adaptées à ce que contient le projet. Un hook `UserPromptSubmit`
-en choisit un selon le `cwd` et l'injecte une fois par session, indexé sur le
-session_id.
+**L'état est injecté, pas cherché.** `TOOLS/relay-state.mjs` construit `.relay-state.md` et un
+`.relay-state/<projet>.md` par projet : statut, dernières sessions *de ce projet*, fichiers de
+règles locaux, skills à la demande. Le hook `SessionStart` (`startup|resume|clear|compact`)
+choisit le bon d'après le `cwd`.
 
-**Le statut est dérivé, l'intention est déclarée.** `relay-brain.yml` est manuel et
-porte l'intention humaine — un projet est `delivered` ou `abandoned` parce que vous
-l'avez dit. `TOOLS/project-scan.mjs` dérive active / idle / dormant du dernier commit
-git ou du mtime le plus récent et écrit `relay-projects.derived.yml`. Les deux
-fichiers ne peuvent pas se contredire en silence : déclarez un projet terminé alors
-qu'il bouge encore, et le scan signale la contradiction.
+**Le statut est mesuré, l'intention est déclarée.** `relay-brain.yml` ne porte que l'intention
+humaine. `TOOLS/project-scan.mjs` déduit actif / au repos / en sommeil des dates git ou des
+fichiers. Si vous déclarez un projet terminé alors qu'il bouge encore, le scan signale le
+conflit.
 
-**Chercher avant de lire.** `TOOLS/rag-index.mjs` indexe chaque section markdown et
-chaque bloc YAML dans un index BM25 ; `rag-query.mjs` y répond. JavaScript pur, aucune
-dépendance native, donc un clone tourne partout. Utiliser `--full` quand l'extrait ne
-suffit pas : un extrait qui oblige à ouvrir le fichier derrière coûte plus cher que
-pas d'index du tout.
+**Un seul écrivain par fichier, pour que plusieurs machines ne s'écrasent jamais.** Chaque
+machine écrit son journal dans `LOG/<hôte>.md` ; `RELAY_LOG.md` est généré par fusion. Le brain
+peut être découpé en un fichier par machine, par projet et par note (`BRAIN/`) : les
+retouches sont reportées par empreinte, les vrais conflits mis de côté. Les fichiers générés
+ne sont jamais synchronisés : chaque machine reconstruit les siens.
 
-**Les skills ont un budget.** Le `description:` d'une skill entre dans le prompt
-système à chaque session, à environ 0,37 token par octet. D'où deux modes de
-chargement : `native` (liée dans `.claude/skills/`, se déclenche seule, payée à chaque
-session) ou `rag` (absente du prompt, trouvée via l'index, lue à la demande). Le
-générateur d'état alerte au-delà de 4 000 octets de descriptions liées.
+**La fin de réponse ne coûte presque rien.** Le hook `Stop` demande une entrée de journal une
+fois par session, puis lance un seul processus détaché, qui ne reconstruit l'état et l'index
+**que si leurs entrées ont changé** (environ 1,1 s, mesuré).
+
+**Chercher avant de lire.** `TOOLS/rag-index.mjs` indexe règles, décisions, skills, projets,
+journal et brain dans un index BM25 en JavaScript pur, sans dépendance native.
+
+**Une skill ne coûte rien tant qu'on ne s'en sert pas.** Une skill marquée
+`disable-model-invocation: true` n'a pas de description dans le prompt système ; son nom
+figure dans l'état injecté et on l'appelle par `/nom`. Les skills natives sont réservées à ce
+qu'un agent ne penserait pas à chercher.
+
+**Les agents proposent, l'utilisateur décide.** Ce qui a été appris et mérite de durer part
+dans `INBOX/<hôte>/` sous forme de proposition, revue par lot avec `/inbox`. Aucune session ne
+réécrit les règles de son propre chef.
+
+**Plusieurs agents sur un même projet : la supervision.** `TOOLS/supervision/` fait tourner un
+tableau de bord (superviseur, managers par périmètre, workers). Il génère pour chaque agent
+une fiche de reprise que le hook de démarrage réinjecte après `/clear` ou une compaction. Il
+refuse une livraison sans branche, sans SHA ou sans check vert **enregistré par le tableau**.
+En Python, optionnel, avec ou sans wmux.
 
 ---
 
 ## Ce qui a été mesuré
 
-Tout ce qui précède vient de la mesure de la version d'avant. Les chiffres proviennent
-du système interne dont Relay est la forme publique :
+Chaque règle ci-dessus vient de la mesure de la version précédente, sur le système interne
+dont Relay est la forme publique (un utilisateur, cinq machines, une douzaine de projets).
+Raisons et détails : [`DECISIONS.md`](DECISIONS.md).
 
 | Constat | Mesure |
 |---|---|
-| Le tour de conversation est l'unité coûteuse | 4 000 à 11 000 tokens par tour, contre 614 pour toute la consolidation du contexte |
-| Travailler depuis le dossier du projet bat la racine | Même question : 3 tours / 96 665 tokens depuis la racine, **1 tour / 25 728 tokens** depuis le projet |
-| Un ordre au démarrage coûte plus que ce qu'il injecte | ~600 tokens injectés, 12-15 k tokens de lectures provoquées |
-| Les descriptions de skills sont un coût récurrent | ~0,37 token par octet, à chaque session, que la skill serve ou non |
-| Le contexte dérive quand personne ne regarde | La chaîne `@include` avait atteint 21 Ko sans que personne ne le voie |
-| Une skill de routage ne s'auto-déclenche pas | 0 déclenchement sur 3 projets — retirée le jour même |
+| Le tour de conversation est l'unité qui coûte cher | 4 000 à 11 000 jetons par tour, contre 614 pour toute la consolidation du contexte |
+| Travailler depuis le dossier du projet | Même question : 3 tours / 96 665 jetons depuis la racine, **1 tour / 25 728 jetons** depuis le projet |
+| Un ordre de lecture au démarrage coûte plus qu'il n'injecte | ~600 jetons injectés, 12 à 15 k jetons de lectures provoquées |
+| Seules les règles universelles restent dans le fichier toujours chargé | 16,2 Ko → environ 10 Ko, les règles par zone passent dans `RULES/` |
+| Les descriptions de skills coûtent à chaque session | ~0,37 jeton par octet, à chaque session ; zéro avec `disable-model-invocation` |
+| Tout reconstruire après chaque réponse gaspille des écritures | ~220 fichiers identiques réécrits par réponse → seulement si les entrées changent, 1,1 s en détaché |
+| Deux machines sur un même journal perdent des entrées | 2 entrées perdues en une journée → un fichier par machine, plus aucune perte depuis |
+| La skill de supervision était lue en entier par chaque rôle | découpée par rôle : worker −72 %, superviseur −33 % |
 
-Les deux derniers justifient la règle qui compte le plus : **avant d'ajouter quoi que
-ce soit au contexte chargé à chaque session, mesurer.**
+La règle qui compte le plus : **avant d'ajouter quoi que ce soit au contexte chargé à chaque
+session, mesurer.** Une chaîne `@include` a atteint 21 Ko sans que personne le voie.
 
 ---
 
 ## Démarrage rapide
 
 ```bash
-git clone <repo-url> relay && cd relay
-cp relay-brain.template.yml relay-brain.yml
-npm run bootstrap
-npm run hooks
+git clone https://github.com/sonical0/relay && cd relay
+npm run init
 ```
 
-Ajouter ensuite votre machine et vos projets dans `relay-brain.yml`, puis lancer
-`npm run state`. Procédure complète, permissions comprises : [`SETUP.md`](SETUP.md).
+`npm run init` crée le brain avec cette machine, installe les hooks, lie les skills, calcule
+statuts, index et état, puis affiche ce qu'il reste à faire. On peut le relancer sans risque.
+Procédure complète, permissions et passage depuis Relay 2 : [`SETUP.md`](SETUP.md).
 
-| Commande | Effet |
+| Commande | Rôle |
 |---|---|
-| `npm run bootstrap` | Installe, lie les skills, dérive les statuts, construit état et index |
-| `npm run hooks` | Installe les trois hooks dans la config de l'agent |
-| `npm run state` | Rafraîchit les statuts dérivés et l'état injecté |
-| `npm run index` | Reconstruit l'index de recherche |
-| `npm run rag -- --query "…"` | L'interroge |
-| `npm run rotate` | Archive les entrées de log de plus de deux mois |
-
-`npm run hooks` sauvegarde vos réglages avant d'y toucher, n'ajoute que les hooks —
-thème, permissions et hooks existants sont préservés — refuse un `settings.json`
-invalide plutôt que de l'écraser, et se relance sans risque. **La configuration des
-hooks est locale à chaque poste** : ni git ni la synchro cloud ne la transportent, pas
-plus que les jonctions NTFS — c'est aussi pourquoi `skills-link.mjs` doit tourner sur
-chaque machine. Si vous faites tourner deux profils (un `CLAUDE_CONFIG_DIR` perso et
-un pro), `RELAY_PROPAGATE_HOOKS=1` copie les hooks — et rien qu'eux — vers l'autre ;
-désactivé par défaut, parce qu'écraser la clé `hooks` d'un profil que l'utilisateur
-n'a pas nommé est une chose surprenante de la part d'un script d'installation.
+| `npm run init` | Configurer cette machine (idempotent ; `-- --dry-run` pour prévisualiser) |
+| `npm run state` | Fusionner le journal, recalculer statuts, index et état injecté |
+| `npm run rag -- --query "…"` | Interroger l'index (`--type rules\|convention\|project\|skill\|log\|brain`, `--full`) |
+| `npm run brain -- --migrate` | Découper le brain pour plusieurs machines (une fois) |
+| `npm run hooks` | Réparer les hooks seuls |
+| `npm run supervision -- <projet>` | Lancer une session multi-agents supervisée |
+| `npm test` | Lancer les tests des outils (dossiers temporaires uniquement) |
 
 ---
 
@@ -122,95 +125,90 @@ n'a pas nommé est une chose surprenante de la part d'un script d'installation.
 
 ```
 relay/
-  AGENTS.md                  Seule source des règles — lue en premier par tout agent
-  CLAUDE.md / GEMINI.md      Capacités et limites par agent (minces)
-  relay-brain.template.yml   Machines, agents, projets, intention — à copier
-  RELAY_LOG.md               Journal partagé, plus récent en haut, rotation mensuelle
-  relay-session-hook.js      UserPromptSubmit — injecte l'état une fois par session
-  relay-setup-hook.js        Installe les hooks ; les revérifie au SessionStart
-  relay-stop-hook.js         Rafraîchit les statuts en arrière-plan en fin de session
+  AGENTS.md                Règles universelles, lues en premier par tout agent
+  CLAUDE.md / GEMINI.md    Capacités par agent (minces, incluent AGENTS.md)
+  RULES/                   Règles par zone, chargées au contact des fichiers concernés
+  DECISIONS.md             Pourquoi chaque règle existe, avec les mesures (RAG : convention)
+  relay-brain.template.yml Machines, agents, projets, intention ; devient relay-brain.yml
+  relay-start-hook.js      SessionStart : injecte l'état ciblé
+  relay-setup-hook.js      Installe et répare les hooks
+  relay-stop-hook.js       Stop : contrôle du journal, travaux de fin de réponse détachés
+  LOG/<hôte>.md            Journal, un fichier par machine (personnel)
+  INBOX/                   Propositions en attente de /inbox (personnel)
 
-  TOOLS/                     Committés : le framework ne fonctionne pas sans eux
-    project-scan.mjs         Dérive le statut des projets depuis le disque
-    relay-state.mjs          Construit l'état injecté
-    rag-index.mjs            Construit l'index BM25
-    rag-query.mjs            L'interroge
-    skills-link.mjs          Lie les skills natives dans .claude/skills/
-    skills-all-native.mjs    Retour arrière : tout en natif
-    log-rotate.mjs           Archive les vieilles entrées de log
-    new-project.mjs          Crée et déclare un projet
-    lib/atomic.mjs           Écriture atomique (retry sur verrou Windows)
-    lib/rag.mjs              Tokenizer et BM25
+  TOOLS/
+    relay-init.mjs         Configuration d'une machine en une commande
+    relay-after-turn.mjs   Travaux de fin de réponse, déclenchés seulement si les entrées ont changé
+    relay-log.mjs          Fusionne LOG/*.md dans RELAY_LOG.md
+    relay-brain.mjs        Découpage optionnel du brain dans BRAIN/
+    relay-state.mjs        Construit l'état injecté
+    project-scan.mjs       Déduit le statut des projets à partir du disque
+    rag-index.mjs / rag-query.mjs   Index BM25 et requêtes
+    skills-link.mjs        Lie les skills, copie RULES/ dans .claude/rules/
+    log-rotate.mjs         Rotation mensuelle du journal et des notes du brain
+    new-project.mjs        Crée et déclare un projet
+    supervision/           Tableau multi-agents, CLI, hook de garde (Python, optionnel)
+    tests/                 node --test, dossiers temporaires uniquement
 
-  PROJECTS/_template/        Fichiers de départ d'un projet
-  SKILLS/skills.manifest.json  Quelles skills existent et comment chacune se charge
-  SKILLS/_template/SKILL.md  Skill de départ
+  SKILLS/                  inbox et supervision livrées ; les vôtres restent personnelles
+  PROJECTS/_template/      Fichiers de départ d'un projet
 
-  générés, jamais committés :
-  relay-projects.derived.yml  .relay-state.md  .relay-state/  .relay-rag.json
+  généré, jamais commité ni synchronisé :
+  RELAY_LOG.md  relay-projects.derived.yml  .relay-state*  .relay-rag.json
+  .claude/skills/  .claude/rules/  .relay-supervision/
 ```
 
 ---
 
 ## Règles de conception
 
-Elles sont porteuses. Chacune existe parce que son contraire a été essayé.
+Chacune existe parce que son contraire a été essayé.
 
-- **Un propriétaire par règle.** Trois documents décrivant le même protocole
-  divergeront.
-- **Généré et manuel ne se mélangent pas.** Un fichier est écrit par un script ou par
-  un humain, jamais les deux. Le fait mesuré va dans les fichiers générés,
-  l'intention reste manuelle.
-- **Écrire atomiquement.** `lib/atomic.mjs` : temporaire suffixé par le PID, retry sur
-  verrou Windows. Sans ça, environ une exécution sur six sortait en `EPERM` pendant
-  que la synchro cloud tenait le fichier.
-- **Valider avant la bascule.** Le temporaire est relu et parsé ; un résultat invalide
-  ne remplace jamais un original valide.
-- **Aucun chemin absolu.** `RELAY_ROOT` se résout depuis l'emplacement du script.
-- **Comparer les deux formes d'un chemin.** Sous Windows, le même dossier arrive tantôt
-  en forme courte 8.3 (`C:\Users\ALEXAN~1\…`), tantôt en forme longue, et la casse ne
-  distingue rien alors que `path.resolve()` la conserve. Le hook compare les deux
-  formes, en minuscules : sans ça l'état par projet n'est jamais choisi, et l'échec est
-  silencieux — on croit que le mécanisme marche, il sert la vue générale.
-- **Mesurer avant d'ajouter.** Le contexte chargé à chaque session est la seule chose
-  qui grossit sans que personne ait décidé de la faire grossir.
+- **Un seul propriétaire par règle.** Une règle écrite à deux endroits finit par diverger.
+- **Le généré et le manuel ne se mélangent jamais.** Un fichier est écrit par un script ou par
+  un humain, jamais par les deux.
+- **Un seul écrivain par fichier partagé.** Une synchro fichier par fichier garde la dernière
+  copie et jette l'autre.
+- **Écrire de façon atomique, valider avant la bascule.** `lib/atomic.mjs` : fichier temporaire,
+  nouvel essai si Windows verrouille le fichier, relecture avant le renommage.
+- **Comparer les chemins par identité, pas par orthographe.** Sous Windows, un même dossier
+  arrive en forme courte 8.3 ou longue, dans n'importe quelle casse ; une comparaison stricte
+  échoue sans rien dire.
+- **Ne commiter que ce qu'on a modifié, vérifier avant de pousser.** `git push` publie toute la
+  branche, y compris les commits des autres sessions.
+- **Ne jamais croire un « fini » auto-déclaré.** Relancer les vérifications quand un agent
+  délégué rend son travail.
+- **Mesurer avant d'ajouter** au contexte toujours chargé.
 
 ---
 
 ## Ajouter un agent CLI
 
-1. Créer `{AGENT}.md` à la racine — inclure `AGENTS.md`, puis déclarer capacités et
-   limites.
-2. Ajouter une entrée sous `agents:` dans `relay-brain.yml`.
-3. Si le CLI gère les slash commands, ajouter
-   `.{agent}/commands/framework-init.{ext}`.
-4. Le consigner dans `RELAY_LOG.md`.
+1. Créer `{AGENT}.md` à la racine : inclure `AGENTS.md`, puis les capacités et les limites.
+2. L'ajouter sous `agents:` dans `relay-brain.yml`.
+3. Si l'outil accepte les commandes slash, ajouter `.{agent}/commands/framework-init.{ext}`.
 
-Relay ne présuppose rien des agents présents. Tout agent qui lit `AGENTS.md` est un
-participant de plein droit. Les agents non-Claude ne lisent pas `.claude/skills/` :
-leur indiquer `SKILLS/<nom>/SKILL.md` par son chemin.
+Les agents autres que Claude ne lisent pas `.claude/skills/` : les renvoyer vers
+`SKILLS/<nom>/SKILL.md`.
 
 ---
 
 ## Ce qui a été retiré, et pourquoi
 
-Conservé ici parce qu'un framework qui ne documente que ses ajouts n'apprend rien.
-
-- **`claims[]`** — protocole de réservation de tâches dans le brain. Aucun écrivain en
-  quatre mois. La coordination passait par le log, que les agents lisaient vraiment.
-- **`needs_bootstrap_sync`** — drapeau de propagation des changements de bootstrap.
-  Personne ne l'a jamais lu.
-- **`tandem-bootstrap.md`** — seconde copie du protocole d'entrée, fusionnée dans
-  `AGENTS.md`.
-- **Le protocole d'entrée obligatoire en 7 étapes** — remplacé par l'état injecté.
-- **Le scope des skills par projet** — `git status -uall` suit les jonctions, donc un
-  `git add .` aurait committé une copie divergente de chaque skill dans chaque dépôt.
-- **Une skill de routage vers les skills à la demande** — ne s'est jamais
-  auto-déclenchée. La suggestion voyage désormais dans l'état du projet, qui arrive à
-  coup sûr.
+- **`claims[]`**, **`needs_bootstrap_sync`** : aucun écrivain, aucun lecteur en quatre mois.
+- **Le protocole d'entrée obligatoire en 7 étapes** : remplacé par l'état injecté.
+- **Le hook d'état sur `UserPromptSubmit`** : ses marqueurs par session faisaient 40 lignes de
+  contournement, et son contexte disparaissait à la compaction. `SessionStart` fait les deux
+  nativement.
+- **Le mode `load: native | rag` du manifeste** : il refaisait à la main ce que
+  `disable-model-invocation` fait nativement.
+- **Une skill de routage** : 0 déclenchement sur 3. **Des liens de skills par projet** : git
+  suivait les jonctions.
+- **Le broker et le chat temps réel entre agents** : la coordination passe par le journal,
+  le tableau de bord et l'état injecté.
 
 ---
 
 ## Licence
 
-MIT.
+MIT, voir [LICENSE](LICENSE).

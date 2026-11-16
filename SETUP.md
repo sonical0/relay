@@ -2,73 +2,74 @@
 
 ## Requirements
 
-- **Node.js 20+** — the scripts in `TOOLS/`
+- **Node.js 20+** — the scripts in `TOOLS/` and the hooks
 - **Git**
 - At least one agent CLI: [Claude Code](https://claude.com/claude-code),
   [Gemini CLI](https://github.com/google-gemini/gemini-cli), or another
-- Optional: a cloud sync folder (MEGA, Nextcloud, Syncthing…) for the personal layer —
-  `PROJECTS/`, real `SKILLS/`, `relay-brain.yml`, the full log
+- Optional: **Python 3.10+**, only for multi-agent supervision (`TOOLS/supervision/`)
+- Optional: a sync tool (Syncthing, Nextcloud…) for the personal layer when you work on
+  several machines — see "What lives where" below and `RULES/synchro.md`
 
 ---
 
-## 1. Clone and bootstrap
+## 1. Clone and initialise
 
 ```bash
 git clone <repo-url> relay
 cd relay
-cp relay-brain.template.yml relay-brain.yml     # Copy-Item on PowerShell
-npm run bootstrap
+npm run init
 ```
 
-`npm run bootstrap` installs the one dependency, links native skills into
-`.claude/skills/`, derives project status, builds the injected state, and indexes the
-RAG. It is idempotent — re-run it whenever something looks stale.
+`npm run init` (`TOOLS/relay-init.mjs`) does, in order:
 
-Then edit `relay-brain.yml`:
+1. checks Node 20+;
+2. creates `relay-brain.yml` from the template if missing, with this machine under
+   `machines:` (keyed by `$RELAY_HOST`, else the hostname) and its `relay_root`;
+3. installs the one dependency (`npm ci`);
+4. installs the Claude Code hooks (`relay-setup-hook.js`, see below);
+5. links skills into `.claude/skills/` and copies `RULES/` into `.claude/rules/`;
+6. derives project status, builds the search index and the injected state;
+7. prints what remains manual (permissions, step 3).
 
-- add your machine under `machines:`, keyed by hostname
-  (`$env:COMPUTERNAME` on Windows, `hostname` elsewhere)
-- set `relay_root` to the absolute path of this directory
-- adjust `agents:` to the CLIs you actually have
+It is idempotent: a re-run only redoes what is missing. `--dry-run` shows what it would
+do; `--config-dir <dir>` targets another Claude config dir.
 
-Re-run `npm run state` after editing.
+Then review `relay-brain.yml`: keep under `agents:` only the CLIs you actually have.
 
 ---
 
-## 2. Install the hooks
+## 2. The hooks
 
-```bash
-node relay-setup-hook.js
-```
+Written into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`) by the init, or by
+`npm run hooks` on its own:
 
-This writes three entries into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`):
-
-| Hook | Script | Role |
+| Event | Script | Role |
 |---|---|---|
-| `UserPromptSubmit` | `relay-session-hook.js` | injects the pre-digested state, once per session |
-| `SessionStart` | `relay-setup-hook.js` | re-checks the hooks on every start, re-adds them if missing |
-| `Stop` | `relay-stop-hook.js` | refreshes status in the background at session end |
+| `SessionStart` `startup\|resume\|clear\|compact` | `relay-start-hook.js` | injects the state targeted at the `cwd`'s project; re-injects it after every compaction |
+| `SessionStart` (async) | `relay-setup-hook.js` | repairs missing or stale hooks at every start, re-links skills and rules |
+| `Stop` | `relay-stop-hook.js` | asks once per session for today's journal entry; launches the detached after-turn work (journal merge, brain sync, state and index only if their inputs changed) |
+| `PreToolUse` `Bash` | `TOOLS/supervision/supervision-guard.js` | push guard during supervision; exits immediately otherwise |
 
-It backs up your settings first, adds only the hooks — theme, permissions and any
-existing hooks are preserved — and refuses to touch an invalid `settings.json` rather
-than overwrite it. It is idempotent, so re-running it is safe. Restart your agent
-afterwards.
+The script backs up your settings first, merges only its own entries — theme,
+permissions and other tools' hooks are preserved, a stale path is fixed in place — and
+refuses to touch an invalid `settings.json`. Upgrading from Relay 2: it removes the old
+`UserPromptSubmit` entry (`relay-session-hook.js`) by itself. Restart your agent afterwards.
 
-If you run two profiles (a personal and a work `CLAUDE_CONFIG_DIR`), set
-`RELAY_PROPAGATE_HOOKS=1` to copy the hooks — and only the hooks — to the other one.
-It is off by default.
+Two profiles (a personal and a work `CLAUDE_CONFIG_DIR`)? `RELAY_PROPAGATE_HOOKS=1`
+merges the hooks into the other one too. Off by default.
 
-**Hook configuration is local to each machine** and never committed. Cloud sync does
-not carry it, and neither do NTFS junctions or symlinks — which is also why
-`skills-link.mjs` has to run on every machine.
+Scheduled, unattended runs: set `RELAY_UNATTENDED=1` so the Stop hook never blocks them.
+
+**Hook configuration is local to each machine** and never committed or synced — nor are
+links, which is why the setup hook re-links skills at every start.
 
 ---
 
 ## 3. Permissions (Claude Code)
 
-From inside a project directory, reading `SKILLS/` and running `TOOLS/` leaves the
-working directory and triggers an approval prompt every time. Add this to your user
-`settings.json` — and to every `CLAUDE_CONFIG_DIR` you use:
+From a project directory, reading `SKILLS/` and running `TOOLS/` leaves the working
+directory and triggers an approval prompt every time. Add to your user `settings.json`
+(every `CLAUDE_CONFIG_DIR` you use) — the init prints it with your real path:
 
 ```json
 "permissions": {
@@ -85,55 +86,58 @@ working directory and triggers an approval prompt every time. Add this to your u
 ## 4. Verify
 
 ```bash
-npm run state
+npm test
 npm run rag -- --query "atomic write validate before swap"
 ```
 
-The first prints the derived project status and the size of the injected state.
+Then open your agent **inside a project directory** and check the injected block names
+that project rather than giving the general view. At the end of the session, the Stop
+hook asks for a journal entry in `LOG/<host>.md` once.
 
-The second returns ranked sections. This page comes first — it contains the query you
-just typed, which is the index working correctly — and `AGENTS.md → Writing
-conventions` comes right after. That second hit is the real answer, delivered without
-opening a file.
+---
 
-Then open your agent inside a project directory and check the injected block names
-that project rather than giving the general view.
+## Upgrading from Relay 2
+
+1. `git pull`, then `npm run init` — it swaps the hooks and rebuilds everything generated.
+2. Your old `RELAY_LOG.md` entries are moved into `LOG/<host>.md` on the first merge;
+   `RELAY_LOG.md` is generated from then on.
+3. Skills: the manifest `load` key is gone. Add `disable-model-invocation: true` to the
+   frontmatter of every skill that was `load: rag` (`RULES/skills.md`).
+4. Several machines sharing one brain: `npm run brain -- --migrate` once (`RULES/brain.md`).
 
 ---
 
 ## Optional: a token-optimizing CLI proxy
 
-A proxy such as RTK (Rust Token Killer) intercepts shell commands through a
-`PreToolUse` hook and filters their output — typically 60-90% fewer tokens on `git`,
-`npm` and similar. It is independent of Relay; if you install one, prefix your shell
-commands with it, including inside `&&` chains.
-
-Note that such a proxy filters output aggressively: when you need a file's exact
-bytes (copying a script, checking encoding), use its raw passthrough mode rather than
-the filtered one.
+A proxy such as RTK intercepts shell commands through a `PreToolUse` hook and filters
+their output — typically 60–90 % fewer tokens on `git`, `npm` and similar. It is
+independent of Relay; if you install one, prefix shell commands with it, including inside
+`&&` chains. When you need a file's exact bytes, use its raw passthrough mode.
 
 ## Optional: a visible browser panel
 
 If your terminal has a browser panel the user can watch (e.g. wmux), prefer it over
-headless browsing so the work is visible. Probe it once per session rather than
-assuming, and record the result in `relay-brain.yml → machines[<host>].browser_panel`.
+headless browsing. With several agents in one workspace, each drives its own tab
+(`CLAUDE.md`, "Browser panel").
 
 ---
 
 ## What lives where
 
-| Content | Git | Cloud sync |
+| Content | Git | Sync between machines |
 |---|---|---|
-| `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `SETUP.md`, `README*` | yes | — |
-| `TOOLS/*.mjs`, `relay-*-hook.js`, `package.json` | yes | — |
-| `relay-brain.template.yml`, `SKILLS/skills.manifest.json` | yes | — |
+| `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `DECISIONS.md`, `RULES/`, `SETUP.md`, `README*` | yes | — |
+| `TOOLS/`, `relay-*-hook.js`, `package.json`, `package-lock.json` | yes | — |
+| `relay-brain.template.yml`, `SKILLS/skills.manifest.json`, shipped skills (`inbox`, `supervision`) | yes | — |
 | `PROJECTS/_template/`, `SKILLS/_template/` | yes | — |
-| `relay-brain.yml` (active) | no | yes |
-| `RELAY_LOG.md` (real history), `LOG/ARCHIVE/` | stub only | yes |
-| `PROJECTS/<name>/`, real `SKILLS/<name>/SKILL.md` | no | yes |
-| `relay-projects.derived.yml`, `.relay-state*`, `.relay-rag.json` | no — generated | no |
+| `relay-brain.yml`, `BRAIN/`, `relay-brain-history.yml` | no | yes |
+| `LOG/<host>.md`, `LOG/ARCHIVE/` | no | yes (one writer per file) |
+| `INBOX/<host>/` | no | yes |
+| `PROJECTS/<name>/` (unversioned), your own `SKILLS/<name>/` | no | yes |
+| Versioned projects (their own git clone, outside `PROJECTS/`) | their own remote | **no** |
+| `RELAY_LOG.md`, `relay-projects.derived.yml`, `.relay-state*`, `.relay-rag.json`, `.claude/skills/`, `.claude/rules/`, `.relay-supervision/` | no — generated | **no** — rebuilt on each machine |
 | `~/.claude/settings.json` (hooks) | no — per machine | no |
 
-The Git repository carries no personal data and can be shared publicly. The cloud
-layer carries the living state. The generated layer is rebuilt by `npm run bootstrap`
-and belongs to neither.
+The Git repository carries no personal data and can be shared publicly. The sync layer
+carries the living state. The generated layer is rebuilt locally and belongs to neither:
+synced, it would carry one machine's absolute paths to another (DECISIONS, 2026-10-19).
