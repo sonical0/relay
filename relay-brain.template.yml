@@ -15,16 +15,19 @@
 version: 3
 
 # ─── Machines ────────────────────────────────────────────────────────────────
-# One entry per machine, keyed by hostname:
+# One entry per machine, keyed by $RELAY_HOST if set, else the hostname:
 #   Windows       → $env:COMPUTERNAME
 #   Linux / macOS → hostname
-# If your machine is missing, add it. project-scan uses this to tell "the project
-# is absent" (a problem) from "the project lives on another machine" (expected).
+# `npm run init` adds this machine for you. project-scan uses this to tell "the
+# project is absent" (a problem) from "the project lives on another machine" (expected).
+# `role:` workstation (default) | satellite (VM/container running unattended agents:
+# regenerates its local files, never writes the brain). See RULES/synchro.md.
 machines:
   MY-MACHINE:
     relay_root: "C:/path/to/relay"
     os: windows            # windows | macos | linux
     shell: powershell      # powershell | zsh | bash
+    role: workstation
     browser_panel: unknown # unknown | operational | unavailable
 
 # ─── Agents ──────────────────────────────────────────────────────────────────
@@ -48,7 +51,7 @@ agents:
 conventions:
   default_owner: claude
   scraping_owner: gemini
-  log: RELAY_LOG.md
+  log: "LOG/<host>.md (merged into the generated RELAY_LOG.md)"
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 # `intent:` is the only status field here, and it is human. Leave it unset for a
@@ -69,8 +72,25 @@ conventions:
 #     summary: "One line: what this project is for."
 #     intent: delivered        # optional, terminal states only
 #     machines: [MY-MACHINE]   # optional, restricts it to certain hosts
+#
+# A versioned project lives OUTSIDE PROJECTS/ and outside sync: the git remote is
+# the source of truth. `path` is the clone's real absolute path, without `~`. On a
+# machine where it does not exist, the folder name is looked up under
+# ~/Documents/GitHub/ and ~/Documents/Git/ ($RELAY_CLONE_DIRS overrides); a clone
+# elsewhere is declared per machine:
+#
+#   my-app:
+#     path: "C:/Users/me/Documents/GitHub/my-app"
+#     paths: { OTHER-MACHINE: "/home/me/src/my-app" }
 projects:
 
 # ─── Cross-project notes ─────────────────────────────────────────────────────
-# Short, dated, last 30 days. Anything older belongs in RELAY_LOG.md.
+# Short, dated, last 30 days; older entries move to relay-brain-history.yml
+# (monthly rotation, automatic).
 cross_project_log: []
+
+# ─── Supervision (optional) ──────────────────────────────────────────────────
+# Per-project configuration of TOOLS/supervision (`npm run supervision -- <project>`).
+# Leave it out until you need several agents on one project. Commented example
+# and field reference: TOOLS/supervision/brain-example.yml.
+# supervision:

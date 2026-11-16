@@ -1,207 +1,124 @@
 # Relay — conventions
 
-> **The single source of Relay's rules.** Every rule has exactly one owning file;
-> duplication is a bug. This file replaces `tandem-bootstrap.md`, merged here on
-> 2026-09-16 — the two described the same protocol and had drifted apart.
+> **The single source of Relay's rules.** Every rule has exactly one owning file; duplication
+> is a bug. This file is loaded in **every** session (~0.37 token per byte), so it keeps only
+> universal rules. Rules that matter only when touching certain files live in `RULES/`
+> (copied to `.claude/rules/`, loaded the first time a matching file is touched). Reasons and
+> dated measurements live in `DECISIONS.md` — "DECISIONS, YYYY-MM-DD" points to an entry.
+> Before adding a line here: measure.
 
-Every CLI agent reads this file. Agent-specific capabilities and limits live in
-`CLAUDE.md`, `GEMINI.md`, or `{AGENT}.md`, which are thin and inherit from here.
-
----
+Every CLI agent reads this file. Agent-specific capabilities live in `CLAUDE.md`, `GEMINI.md`
+or `{AGENT}.md`, which are thin and include this one.
 
 ## Who owns what
 
-| Information | Owning file | Nature |
-|---|---|---|
-| Rules, conventions, protocol | `AGENTS.md` (this file) | manual |
-| Machines, agents, projects, `intent:` | `relay-brain.yml` | manual |
-| Real project status | `relay-projects.derived.yml` | **generated** (`TOOLS/project-scan.mjs`) |
-| State injected at startup | `.relay-state.md`, `.relay-state/` | **generated** (`TOOLS/relay-state.mjs`) |
-| Search index | `.relay-rag.json` | **generated** (`TOOLS/rag-index.mjs`) |
-| Session journal | `RELAY_LOG.md` | manual, **newest entry on top** |
-| Skill loading modes | `SKILLS/skills.manifest.json` | manual |
+- **Manual**: universal rules `AGENTS.md` · per-area rules `RULES/*.md` · reasons `DECISIONS.md` · machines, projects, `intent:` `relay-brain.yml` (optionally split in `BRAIN/`) · journal per machine `LOG/<host>.md` (newest on top) · agents' proposals `INBOX/<host>/` (reviewed with `/inbox`).
+- **Generated** — never edit, change the script or its input: real status `relay-projects.derived.yml` (`TOOLS/project-scan.mjs`) · injected state `.relay-state.md` and `.relay-state/<project>.md` (`TOOLS/relay-state.mjs`) · merged journal `RELAY_LOG.md` (`TOOLS/relay-log.mjs`) · search index `.relay-rag.json` (`TOOLS/rag-index.mjs`) · `.claude/skills/`, `.claude/rules/` (`TOOLS/skills-link.mjs`) · supervision sheets `.relay-supervision/`.
 
-Never write to `relay-brain.yml` automatically: it carries human intent.
-Measured facts go in the generated files. A generated file you edit by hand is
-overwritten on the next run — change the script or its input instead.
-
----
+Never write to `relay-brain.yml` automatically: it carries human intent; measured facts go to
+the generated files. What should last but touches a rule or a skill: a proposal in
+`INBOX/<host>/`. Several machines: `RULES/synchro.md`.
 
 ## Startup
 
-A `UserPromptSubmit` hook injects a pre-digested state block **once per session**,
-picked from the `cwd`: `.relay-state/<project>.md` when you are inside a project
-(status, recent sessions *for that project*, local rules), otherwise
-`.relay-state.md` (the general view). Nothing else is read by default.
+The `SessionStart` hook injects a pre-digested state picked from the `cwd`:
+`.relay-state/<project>.md` inside a project (status, recent sessions *of that project*, local
+rules), otherwise `.relay-state.md`. It is re-injected after every compaction. Nothing else is
+read by default.
 
-> **Work from the project directory, not the root.** Measured on the internal
-> system this framework comes from, 2026-09-15, same question asked twice: from
-> the root, 3 turns and 96,665 tokens; from the project directory, **1 turn and
-> 25,728 tokens** — the targeted state block already held the answer. One avoided
-> turn is worth 4,000 to 11,000 tokens, against 614 for the whole context
-> consolidation. The lever is the exploration turn you skip, not the block size.
+**Work from the project directory, not the root**: the targeted state already holds the
+answer — 1 turn instead of 3 (DECISIONS, 2026-09-15).
 
 Then, as needed:
+- **Query the RAG before opening a file**: `node TOOLS/rag-query.mjs --query "…" [--full] [--type <kind>]`.
+  Kinds: `rules` · `convention` · `project` · `skill` · `log` · `brain`. An excerpt that forces
+  you to open the file behind it costs more than no RAG: use `--full` when in doubt.
+- Machines and projects: `relay-brain.yml`. History: `RELAY_LOG.md`. A project's local rules:
+  `PROJECTS/<project>/AGENTS.md`.
 
-- **Query the RAG before opening a file** —
-  `node TOOLS/rag-query.mjs --query "…" [--full] [--type <kind>]`.
-  Kinds: `rules` · `project` · `skill` · `log` · `brain`.
-  Open the source file only if the RAG answer was not enough.
-- Machine and project detail: `relay-brain.yml`. History: `RELAY_LOG.md`.
-- A project's local rules: `PROJECTS/<project>/AGENTS.md`.
+**First run on a machine** (no `relay-brain.yml`, only the template): do not enter the normal
+protocol. Tell the user, then run `npm run init` (or `/framework-init`, or `SETUP.md`).
 
-**First run on a machine** — if `relay-brain.yml` does not exist (only
-`relay-brain.template.yml` does), do not enter the normal protocol. Tell the user
-this is a first run and launch `/framework-init`, or follow `SETUP.md`.
+## Paths
 
-**A machine that is already configured but has no hooks**: `npm run bootstrap`
-(installs dependencies, links skills, computes status, builds the index), then
-`node relay-setup-hook.js` once to install the hooks.
+`RELAY_ROOT` is the directory holding this file (`$RELAY_ROOT` wins when set). In `.md` and
+`.yml` files, paths are relative to it; in `relay-brain.yml`, `{{relay_root}}` resolves through
+`machines[<host>].relay_root` (`<host>` = `$RELAY_HOST`, else the hostname; add your machine if
+absent). Never hardcode an absolute path in the framework.
 
----
-
-## RELAY_ROOT — path resolution
-
-`RELAY_ROOT` is the directory containing this `AGENTS.md`.
-
-- In `.md` and `.yml` files: paths relative to `RELAY_ROOT` (e.g. `./relay-brain.yml`).
-- In Node scripts: `path.dirname(fileURLToPath(import.meta.url))` plus relative navigation.
-- The `$RELAY_ROOT` environment variable is optional; it wins when set.
-- In `relay-brain.yml`, `{{relay_root}}` resolves through `machines[<hostname>].relay_root`
-  (Windows `$env:COMPUTERNAME`, Linux/macOS `hostname`). If your machine is absent, add it.
-
-Never hardcode an absolute path in this framework.
-
-```
-RELAY_ROOT/
-├── AGENTS.md, relay-brain.yml, RELAY_LOG.md
-├── PROJECTS/<project>/     SKILLS/<skill>/SKILL.md     TOOLS/
-├── .claude/skills/ (links, generated)                  .relay-state/ (generated)
-```
-
----
+**Versioned projects live outside `PROJECTS/` and outside sync**: the git remote is the source
+of truth, the clone is disposable. In the brain, `path` = the **real absolute path of the
+clone, without `~`**, otherwise no targeted state. Look in `~/Documents/GitHub/` and
+`~/Documents/Git/` before concluding a clone is missing; absent from this machine = `absent`,
+expected — do not recreate the folder (DECISIONS, 2026-09-18 and 2026-09-19).
 
 ## Writing conventions
 
-- **Atomic**: read → modify → write through tmp + rename. Re-validate the format
-  (YAML/JSON) before the swap. Reference implementation: `TOOLS/lib/atomic.mjs`.
-- **RELAY_LOG.md**: current month plus the previous one only; older entries move to
-  `LOG/ARCHIVE/` (monthly rotation by `TOOLS/log-rotate.mjs`). New entry **on top**.
-  Format `## YYYY-MM-DD — Agent (project: subject)`, then at most 5 bullets of 15
-  words, `- [project] action → measured result`. No sub-lists. One batch summary per
-  significant task, never one line per file touched.
-- **Encoding**: UTF-8 without BOM. Never use PowerShell to write accented text —
-  use the agent's file-write tool or Node.
-- **Never overwrite another agent's work** without documenting it in `RELAY_LOG.md`.
-- **Clarify before generating**: for a substantial deliverable with real degrees of
-  freedom, ask 2 to 5 targeted questions first. Not for a trivial or already-scoped task.
+- **Atomic**: read → modify → write through tmp + rename, format re-validated (YAML/JSON)
+  before the swap. Reference: `TOOLS/lib/atomic.mjs`.
+- **Journal**: at the end of a session, one entry **on top** of `LOG/<host>.md` (never in
+  `RELAY_LOG.md`, generated): `## YYYY-MM-DD HH:MM — Agent (project: subject)` then at most 5
+  bullets of 15 words, `- [project] action → measured result`. The time is **read from the
+  clock** (`date +"%H:%M"`), never estimated. Detail: `RULES/journal.md`.
+- **Encoding**: UTF-8 without BOM. Never write accented text with Windows PowerShell 5 — use
+  the agent's file tool or Node.
+- **Clarify before generating**: for a substantial deliverable with real degrees of freedom,
+  2 to 5 targeted questions first — through the agent's structured question tool (clickable
+  choices, recommendation first), never a numbered list in the text. Not for a trivial or
+  already-scoped task (DECISIONS, 2026-10-27).
 - **Verification gate**: after a delegated agent reports back on anything that matters,
   re-run the checks yourself (build, typecheck, diff, read the output). Never trust a
   self-declared "done".
-
----
+- **A session commits only what it changed**: `git add` with explicit paths, never
+  `git add .` or `-A` — several sessions share the working copy. And `git push` publishes
+  **the whole branch**: before pushing, `git log origin/<branch>..HEAD`; if it holds another
+  session's commits, tell the user instead of pushing (DECISIONS, 2026-10-12).
+- **Never overwrite another agent's work** without saying so in the journal.
+- **Previews stay local** (`python -m http.server` + a browser panel); the repo is the source
+  of truth, not a hosted copy (DECISIONS, 2026-11-09).
+- **Durable facts go into Relay, not into an agent's private memory** (local to one machine,
+  invisible to the others): a project fact → the project's notes; a rule or preference → a
+  proposal in `INBOX/<host>/`.
 
 ## Agents
 
-Relay makes no assumption about which agents are present. The orchestrator is
-whichever agent has full filesystem access and can spawn the others; sandboxed
-agents are workers.
+Relay makes no assumption about which agents are present. The **orchestrator** is the agent
+with full filesystem access that can spawn the others; sandboxed agents are workers. Delegate
+to another agent what it alone can do rather than improvising a degraded equivalent. Record
+each agent's capabilities in its `{AGENT}.md` and under `agents:` in `relay-brain.yml`.
 
-Delegate to another agent the capabilities it alone has, rather than improvising a
-degraded equivalent yourself. Record each agent's capabilities and limits in its
-`{AGENT}.md` and under `agents:` in `relay-brain.yml`.
+**Adding a CLI agent**: create `{AGENT}.md` (includes this file, then capabilities and
+limits), add it under `agents:` in the brain, add `.{agent}/commands/framework-init.{ext}` if
+the CLI has slash commands, log it.
 
-**Adding a CLI agent**
-1. Create `{AGENT}.md` at `RELAY_ROOT` — it starts by including `AGENTS.md`, then
-   declares capabilities and limits.
-2. Add an entry under `agents:` in `relay-brain.yml`.
-3. If the CLI supports slash commands, add `.{agent}/commands/framework-init.{ext}`.
-4. Log it in `RELAY_LOG.md`.
+Subagents: past 3 files, on a batch task, or for speculative search across unknown files.
 
-Subagents: delegate past 3 files, on a batch task, or for speculative search across
-files you do not know.
-
----
+**Multi-agent supervision** (several sessions on one project, with a board, scopes, and
+deliveries refused without a recorded green check): `npm run supervision -- <project>`, rules
+in the on-demand skill `/supervision`, details in `TOOLS/supervision/README.md`.
 
 ## Skills
 
-Sources live in `SKILLS/`, but **Claude Code only discovers `.claude/skills/`**.
-`node TOOLS/skills-link.mjs` creates the links from `SKILLS/skills.manifest.json`.
-Neither NTFS junctions nor symlinks survive cloud sync: **re-run the script on every
-machine**.
+Sources live in `SKILLS/`, but Claude Code only discovers `.claude/skills/`:
+`node TOOLS/skills-link.mjs` creates the links (and copies `RULES/` to `.claude/rules/`). The
+setup hook re-runs it at every start, because links do not survive sync.
 
-**A skill's `description:` is paid for on every session** — it enters the system
-prompt (~0.37 token per byte, measured). The body is only loaded on invocation: put
-all the method detail there and keep the description near 200 bytes, just enough to
-trigger selection, **in quotes** (descriptions contain `:`, without quotes the
-frontmatter stops being valid YAML for our own tooling).
-`TOOLS/relay-state.mjs` raises an alert past 4,000 bytes total.
-
-**Two loading modes**, via `load` in `SKILLS/skills.manifest.json`:
-
-- **`native`** — linked into `.claude/skills/`, triggers on its own when relevant.
-  Reserve it for what you would not think to go looking for.
-- **`rag`** — no link, absent from the system prompt. The skill is found with
-  `node TOOLS/rag-query.mjs --query "…" --type skill`, and you read its `SKILL.md`
-  before applying it. Reserve it for what you invoke deliberately.
-
-`rag` skills are listed by name in the injected startup state (~25 tokens): without
-that, they would be unreachable — you do not search for what you do not know exists.
-
-> **Do not build a routing skill.** Tried on the internal system 2026-09-15 and
-> removed the same day: auto-triggering was 0 out of 3 projects, even with the
-> suggestion present in the injected block. The per-project scope
-> (`PROJECTS/<x>/.claude/skills/`) was also tried and abandoned: `git status -uall`
-> follows junctions and saw `SKILL.md`, so a `git add .` would have committed a
-> **copy** of the skill into the project repo, bound to diverge from `SKILLS/`.
->
-> **`rag` mode is an experiment, not a settled state.** If it gets in the way — a
-> skill you can no longer reach, friction on load — put everything back to native:
-> `node TOOLS/skills-all-native.mjs && node TOOLS/skills-link.mjs`.
-
-> **Prerequisite on each machine**: from a project directory, reading `SKILLS/` and
-> running `TOOLS/` leaves the working directory and triggers an approval prompt. Add
-> this to the user `settings.json` — and to every `CLAUDE_CONFIG_DIR` in use:
-> ```json
-> "permissions": {
->   "additionalDirectories": ["<relay_root>"],
->   "allow": ["Bash(node \"<relay_root>/TOOLS/*)", "Bash(npm run --prefix \"<relay_root>\"*)"]
-> }
-> ```
-> Without it, `rag` mode costs an approval prompt on every skill load.
-
----
+On-demand skills (`disable-model-invocation: true`, zero tokens until invoked) are listed by
+name in the injected state: the user types `/name`, the agent reads `SKILLS/<name>/SKILL.md`.
+Loading modes, description budget, third-party skills: `RULES/skills.md`.
 
 ## Token economy
 
-This is what Relay is for, not a bonus. Two levers:
+This is what Relay is for. Two levers: **the RAG** (query before you read) and **a
+token-optimizing CLI proxy** if one is installed (e.g. RTK: prefix shell commands with it,
+including inside `&&` chains). Before adding anything to the context loaded every session,
+measure (`/context`): an `@include` chain once reached 21 KB without anyone noticing
+(DECISIONS, 2026-10-14).
 
-- **RAG** — query before you read. An excerpt that forces you to open the file behind
-  it costs more than no RAG at all: use `--full` when in doubt.
-- **A token-optimizing CLI proxy** (e.g. RTK) if one is installed on the machine —
-  prefix shell commands with it, including inside `&&` chains.
+## Starting a project
 
-Before adding anything to the context loaded on every session, measure. The `@include`
-chain on the internal system reached 21 KB before anyone noticed.
-
----
-
-## Starting a new project
-
-```bash
-node TOOLS/new-project.mjs <name>
-```
-
-Creates `PROJECTS/<name>/` from `_template/` and registers the project under
-`projects:` in `relay-brain.yml`. Then:
-
-- [ ] Fill in `PROJECTS/<name>/AGENTS.md` (role split, structure, local conventions)
-- [ ] Set `intent:` in `relay-brain.yml` — the human intent; status is derived from disk
-- [ ] Create `SKILLS/<name>/SKILL.md` and declare it in the manifest, if the project
-      has recurring modes or commands
-- [ ] `npm run state` to refresh the derived status and the injected state
-- [ ] Log the start in `RELAY_LOG.md`
-
-**Who does what on a new project**: read `relay-brain.yml → conventions` for the
-default owners. Do not assume an existing project's split applies to the new one.
-Record the split you settle on in `PROJECTS/<name>/AGENTS.md`.
+`node TOOLS/new-project.mjs <name>` creates `PROJECTS/<name>/` from `_template/` and registers
+it in the brain. Then fill in its `AGENTS.md` (role split, structure, local rules), set
+`intent:` only for a terminal state, `npm run state`, and log the start. A versioned project:
+clone it outside `PROJECTS/` and declare its absolute `path`. Do not assume an existing
+project's role split applies to a new one.

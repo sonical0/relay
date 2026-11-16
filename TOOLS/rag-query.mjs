@@ -6,7 +6,7 @@
  *   node TOOLS/rag-query.mjs --query "how does the log rotate" [options]
  *
  * Options:
- *   --type <kind>       restrict to rules | project | skill | log | brain
+ *   --type <kind>       restrict to rules | convention | project | skill | log | brain
  *   --project <name>    restrict to one project
  *   --limit <n>         number of results (default 5)
  *   --full              print the whole matching section instead of a snippet
@@ -19,11 +19,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { ROOT_DIR as rootDir } from './lib/brain.mjs';
 import { tokenize, bm25, bestWindow } from './lib/rag.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.join(__dirname, '..');
 const indexPath = path.join(rootDir, '.relay-rag.json');
 
 const args = process.argv.slice(2);
@@ -40,7 +38,7 @@ const full = args.includes('--full');
 const asJson = args.includes('--json');
 
 if (!query) {
-  console.error('Usage: node TOOLS/rag-query.mjs --query "…" [--type rules|project|skill|log|brain] [--project <name>] [--limit n] [--full] [--json]');
+  console.error('Usage: node TOOLS/rag-query.mjs --query "…" [--type rules|convention|project|skill|log|brain] [--project <name>] [--limit n] [--full] [--json]');
   process.exit(1);
 }
 

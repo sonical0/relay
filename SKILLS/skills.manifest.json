@@ -1,29 +1,21 @@
 {
-  "$comment": "Source of truth for Relay skills. `node TOOLS/skills-link.mjs` creates the links (Claude Code only discovers .claude/skills/). Junctions and symlinks do not survive cloud sync: re-run the script on every machine. `load` is 'native' (linked at the root, auto-triggering, its description: is paid for on every session) or 'rag' (no link: found through `rag-query.mjs --type skill` and read on demand). Per-project scope was abandoned: git follows junctions and would have committed a diverging copy of the skill into each project repo.",
-  "$rollback": "ROLLBACK — if 'rag' mode gets in the way (skills you can no longer reach, friction on load), put everything back to native: `node TOOLS/skills-all-native.mjs` then `node TOOLS/skills-link.mjs`. The script prints what the return costs in tokens per session.",
+  "$comment": "Which skills exist. `node TOOLS/skills-link.mjs` links each one into .claude/skills/ (Claude Code only discovers that folder) and copies RULES/*.md into .claude/rules/. Links do not survive cloud sync: the setup hook re-runs the script at every start. The loading mode is NOT here: it lives in each SKILL.md frontmatter (`disable-model-invocation: true` = on demand, zero tokens until invoked). See RULES/skills.md.",
   "$fields": {
-    "name": "directory name under .claude/skills/, and the name the agent invokes",
+    "name": "directory name under .claude/skills/, and the name the user invokes with /name",
     "src": "path under SKILLS/, may be nested (e.g. 'web/scraping')",
-    "load": "'native' | 'rag'",
-    "why": "one line: why this loading mode, so the choice survives the person who made it",
-    "suggest_if": "optional regex, tested against a project's file and dependency names; on a match the skill is named in that project's injected state block",
-    "suggest_why": "optional short parenthetical shown next to the suggestion"
+    "why": "one line: why this skill exists and why its loading mode, so the choice survives the person who made it"
   },
   "target": ".claude/skills",
   "skills": [
     {
-      "name": "example-native",
-      "src": "_template",
-      "load": "native",
-      "why": "replace this entry — an example of a method you would not think to go looking for"
+      "name": "inbox",
+      "src": "inbox",
+      "why": "on demand: proposal format and /inbox review; invoked deliberately"
     },
     {
-      "name": "example-on-demand",
-      "src": "_template",
-      "load": "rag",
-      "why": "replace this entry — an example of something you invoke deliberately",
-      "suggest_if": "react|vue|svelte|next|vite|astro|tailwind|\\.html",
-      "suggest_why": "web project"
+      "name": "supervision",
+      "src": "supervision",
+      "why": "on demand: read by supervisor, managers and workers when a supervised run starts"
     }
   ]
 }
