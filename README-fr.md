@@ -30,6 +30,11 @@ recherche local. Ce que lit l'agent, c'est la réponse, pas le corpus.
 
 ## Fonctionnement
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/relay-flow-fr-dark.svg">
+  <img src="docs/diagrams/relay-flow-fr.svg" width="100%" alt="Une session Relay : le hook SessionStart injecte l'état généré dans l'agent ; à la fin de chaque réponse, le hook Stop lance after-turn, qui lit le journal et le brain synchronisés et reconstruit l'état injecté et l'index RAG.">
+</picture>
+
 **Chaque règle a un seul propriétaire, sur trois niveaux.** `AGENTS.md` ne garde que les
 règles universelles (chargées à chaque session). `RULES/*.md` porte les règles par zone, avec
 un frontmatter `paths:` : elles se chargent la première fois que l'agent touche un fichier
@@ -155,6 +160,7 @@ relay/
 
   SKILLS/                  inbox et supervision livrées ; les vôtres restent personnelles
   PROJECTS/_template/      Fichiers de départ d'un projet
+  docs/diagrams/           Schémas du README : source HTML, SVG exporté
 
   généré, jamais commité ni synchronisé :
   RELAY_LOG.md  relay-projects.derived.yml  .relay-state*  .relay-rag.json
