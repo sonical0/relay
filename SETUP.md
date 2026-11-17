@@ -98,12 +98,21 @@ hook asks for a journal entry in `LOG/<host>.md` once.
 
 ## Upgrading from Relay 2
 
-1. `git pull`, then `npm run init` — it swaps the hooks and rebuilds everything generated.
-2. Your old `RELAY_LOG.md` entries are moved into `LOG/<host>.md` on the first merge;
-   `RELAY_LOG.md` is generated from then on.
-3. Skills: the manifest `load` key is gone. Add `disable-model-invocation: true` to the
+The repository history was rewritten on 2026-11-17, so a clone made before that date
+cannot pull: upgrade by cloning again.
+
+1. Clone Relay next to the old copy (`git clone https://github.com/sonical0/relay relay3`).
+2. Copy your personal files from the old copy into the new one: `relay-brain.yml`,
+   `RELAY_LOG.md`, your `PROJECTS/<name>/` and your own `SKILLS/<name>/`. In the copied
+   brain, set `machines.<host>.relay_root` to the new folder (or rename the new folder to
+   the old name once the old copy is gone).
+3. `npm run init` in the new copy — it points the hooks at it, drops the old
+   `UserPromptSubmit` hook and rebuilds everything generated. Your `RELAY_LOG.md` entries
+   move into `LOG/<host>.md` on the first merge; `RELAY_LOG.md` is generated (and no
+   longer tracked by git) from then on. Once it works, delete the old copy.
+4. Skills: the manifest `load` key is gone. Add `disable-model-invocation: true` to the
    frontmatter of every skill that was `load: rag` (`RULES/skills.md`).
-4. Several machines sharing one brain: `npm run brain -- --migrate` once (`RULES/brain.md`).
+5. Several machines sharing one brain: `npm run brain -- --migrate` once (`RULES/brain.md`).
 
 ---
 

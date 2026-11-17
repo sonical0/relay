@@ -109,6 +109,9 @@ npm run init
 statuts, index et état, puis affiche ce qu'il reste à faire. On peut le relancer sans risque.
 Procédure complète, permissions et passage depuis Relay 2 : [`SETUP.md`](SETUP.md).
 
+> **Cloné avant le 2026-11-17 ?** L'historique a été réécrit ce jour-là et un ancien clone ne
+> peut plus faire de pull : recloner, puis suivre « Upgrading from Relay 2 » dans `SETUP.md`.
+
 | Commande | Rôle |
 |---|---|
 | `npm run init` | Configurer cette machine (idempotent ; `-- --dry-run` pour prévisualiser) |

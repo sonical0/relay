@@ -105,6 +105,9 @@ npm run init
 builds status, index and state, and prints what is left to do. Re-running it is safe.
 Full procedure, permissions and upgrade from Relay 2: [`SETUP.md`](SETUP.md).
 
+> **Cloned before 2026-11-17?** The history was rewritten that day and an old clone cannot
+> pull: clone again and follow "Upgrading from Relay 2" in `SETUP.md`.
+
 | Command | What it does |
 |---|---|
 | `npm run init` | Set this machine up (idempotent; `-- --dry-run` to preview) |
