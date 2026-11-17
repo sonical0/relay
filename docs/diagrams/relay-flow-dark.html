@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How Relay runs a session</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --color-paper: #2d3142; --color-ink: #f5f5f5; --color-muted: #bfc0c0;
+      --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif; --font-serif: Georgia, 'Times New Roman', serif; --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace; }
+    body { font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+    h1 { font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 400;
+      letter-spacing: -0.02em; line-height: 1.15; color: var(--color-ink); margin-bottom: 1.5rem; }
+    .diagram-container { overflow-x: auto; }
+    svg { width: 100%; min-width: 984px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Relay</p>
+    <h1>One session, end to end</h1>
+    <div class="diagram-container">
+<svg viewBox="0 0 984 504" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="relay-flow-dark-title relay-flow-dark-desc">
+<title id="relay-flow-dark-title">How Relay runs a session</title>
+<desc id="relay-flow-dark-desc">Relay session cycle: the SessionStart hook injects the generated state into the agent; at the end of each reply the Stop hook launches after-turn, which reads the synced journal and brain and rebuilds the state and the search index.</desc>
+<defs>
+<pattern id="relay-flow-dark-dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/></pattern>
+<marker id="relay-flow-dark-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/></marker>
+<marker id="relay-flow-dark-arrow-start" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto"><polygon points="8 0, 0 3, 8 6" fill="#bfc0c0"/></marker>
+<marker id="relay-flow-dark-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#f08a59"/></marker>
+</defs>
+<rect width="100%" height="100%" fill="#2d3142"/>
+<rect width="100%" height="100%" fill="url(#relay-flow-dark-dots)" opacity="0.55"/>
+<rect x="16" y="272" width="352" height="112" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+<rect x="138" y="276" width="108" height="12" rx="2" fill="#2d3142"/>
+<text x="192" y="285" fill="#949eb2" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.14em">GENERATED · LOCAL</text>
+<rect x="616" y="272" width="352" height="112" rx="8" fill="rgba(245,245,245,0.02)" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+<rect x="740" y="276" width="104" height="12" rx="2" fill="#2d3142"/>
+<text x="792" y="285" fill="#949eb2" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.14em">SOURCES · SYNCED</text>
+<path d="M 152,96 H 232" fill="none" stroke="#f08a59" stroke-width="1.4" marker-end="url(#relay-flow-dark-arrow-accent)"/>
+<path d="M 352,96 H 432" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 492,128 V 304" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 92,304 V 128" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 272,128 V 304" fill="none" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 312,128 V 168 Q 312,176 320,176 H 484 a 8,8 0 0,1 16,0 H 684 Q 692,176 692,184 V 304" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 632,336 H 552" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 892,368 V 392 Q 892,400 884,400 H 520 Q 512,400 512,392 V 368" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 432,336 H 352" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 472,368 V 392 Q 472,400 464,400 H 100 Q 92,400 92,392 V 368" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<path d="M 892,128 V 272" fill="none" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#relay-flow-dark-arrow)" marker-start="url(#relay-flow-dark-arrow-start)"/>
+<rect x="164" y="78" width="56" height="12" rx="2" fill="#2d3142"/>
+<text x="192" y="87" fill="#f08a59" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">INJECTS</text>
+<rect x="362" y="78" width="60" height="12" rx="2" fill="#2d3142"/>
+<text x="392" y="87" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">TURN END</text>
+<rect x="500" y="232" width="60" height="12" rx="2" fill="#2d3142"/>
+<text x="530" y="241" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">DETACHED</text>
+<rect x="100" y="210" width="44" height="12" rx="2" fill="#2d3142"/>
+<text x="122" y="219" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">READS</text>
+<rect x="220" y="232" width="44" height="12" rx="2" fill="#2d3142"/>
+<text x="242" y="241" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">QUERY</text>
+<rect x="700" y="232" width="84" height="12" rx="2" fill="#2d3142"/>
+<text x="742" y="241" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">WRITES ENTRY</text>
+<rect x="570" y="318" width="44" height="12" rx="2" fill="#2d3142"/>
+<text x="592" y="327" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">READS</text>
+<rect x="366" y="318" width="52" height="12" rx="2" fill="#2d3142"/>
+<text x="392" y="327" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">BUILDS</text>
+<rect x="900" y="194" width="40" height="12" rx="2" fill="#2d3142"/>
+<text x="920" y="203" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">SYNC</text>
+<rect x="32" y="64" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="32" y="64" width="120" height="64" rx="6" fill="#393e53" stroke="#f5f5f5" stroke-width="1"/>
+<rect x="40" y="72" width="32" height="12" rx="2" fill="none" stroke="rgba(245,245,245,0.40)" stroke-width="0.8"/>
+<text x="56" y="81" fill="#f5f5f5" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">HOOK</text>
+<text x="92" y="102" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">SessionStart hook</text>
+<text x="92" y="118" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">relay-start-hook.js</text>
+<rect x="232" y="64" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="232" y="64" width="120" height="64" rx="6" fill="rgba(240,138,89,0.10)" stroke="#f08a59" stroke-width="1"/>
+<rect x="240" y="72" width="36" height="12" rx="2" fill="none" stroke="rgba(240,138,89,0.50)" stroke-width="0.8"/>
+<text x="258" y="81" fill="#f08a59" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">AGENT</text>
+<text x="292" y="102" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">Agent session</text>
+<text x="292" y="118" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">Claude Code · Gemini</text>
+<rect x="432" y="64" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="432" y="64" width="120" height="64" rx="6" fill="#393e53" stroke="#f5f5f5" stroke-width="1"/>
+<rect x="440" y="72" width="32" height="12" rx="2" fill="none" stroke="rgba(245,245,245,0.40)" stroke-width="0.8"/>
+<text x="456" y="81" fill="#f5f5f5" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">HOOK</text>
+<text x="492" y="102" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">Stop hook</text>
+<text x="492" y="118" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">relay-stop-hook.js</text>
+<rect x="832" y="64" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="832" y="64" width="120" height="64" rx="6" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+<rect x="840" y="72" width="28" height="12" rx="2" fill="none" stroke="rgba(245,245,245,0.22)" stroke-width="0.8"/>
+<text x="854" y="81" fill="#949eb2" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+<text x="892" y="102" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">Other machines</text>
+<text x="892" y="118" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">any sync tool</text>
+<rect x="32" y="304" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="32" y="304" width="120" height="64" rx="6" fill="rgba(245,245,245,0.05)" stroke="#bfc0c0" stroke-width="1"/>
+<rect x="40" y="312" width="28" height="12" rx="2" fill="none" stroke="rgba(191,192,192,0.50)" stroke-width="0.8"/>
+<text x="54" y="321" fill="#bfc0c0" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">GEN</text>
+<text x="92" y="342" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">Injected state</text>
+<text x="92" y="358" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">.relay-state/*.md</text>
+<rect x="232" y="304" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="232" y="304" width="120" height="64" rx="6" fill="rgba(245,245,245,0.05)" stroke="#bfc0c0" stroke-width="1"/>
+<rect x="240" y="312" width="28" height="12" rx="2" fill="none" stroke="rgba(191,192,192,0.50)" stroke-width="0.8"/>
+<text x="254" y="321" fill="#bfc0c0" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">GEN</text>
+<text x="292" y="342" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">RAG index</text>
+<text x="292" y="358" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">.relay-rag.json</text>
+<rect x="432" y="304" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="432" y="304" width="120" height="64" rx="6" fill="#393e53" stroke="#f5f5f5" stroke-width="1"/>
+<rect x="440" y="312" width="44" height="12" rx="2" fill="none" stroke="rgba(245,245,245,0.40)" stroke-width="0.8"/>
+<text x="462" y="321" fill="#f5f5f5" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">SCRIPT</text>
+<text x="492" y="342" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">After-turn</text>
+<text x="492" y="358" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">relay-after-turn.mjs</text>
+<rect x="632" y="304" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="632" y="304" width="120" height="64" rx="6" fill="rgba(191,192,192,0.10)" stroke="#949eb2" stroke-width="1"/>
+<rect x="640" y="312" width="28" height="12" rx="2" fill="none" stroke="rgba(148,158,178,0.50)" stroke-width="0.8"/>
+<text x="654" y="321" fill="#949eb2" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+<text x="692" y="342" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">Journal</text>
+<text x="692" y="358" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">LOG/&lt;host&gt;.md</text>
+<rect x="832" y="304" width="120" height="64" rx="6" fill="#2d3142"/>
+<rect x="832" y="304" width="120" height="64" rx="6" fill="rgba(191,192,192,0.10)" stroke="#949eb2" stroke-width="1"/>
+<rect x="840" y="312" width="28" height="12" rx="2" fill="none" stroke="rgba(148,158,178,0.50)" stroke-width="0.8"/>
+<text x="854" y="321" fill="#949eb2" font-size="7" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">SRC</text>
+<text x="892" y="342" fill="#f5f5f5" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" text-anchor="middle">Brain</text>
+<text x="892" y="358" fill="#bfc0c0" font-size="9" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" text-anchor="middle">relay-brain.yml</text>
+<line x1="32" y1="440" x2="952" y2="440" stroke="rgba(245,245,245,0.12)" stroke-width="0.8"/>
+<text x="32" y="456" fill="#bfc0c0" font-size="8" font-family="ui-monospace, 'Cascadia Mono', Consolas, monospace" letter-spacing="0.18em">LEGEND</text>
+<rect x="32" y="472" width="14" height="10" rx="2" fill="rgba(240,138,89,0.10)" stroke="#f08a59" stroke-width="1"/>
+<text x="52" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">Agent (focal)</text>
+<rect x="132" y="472" width="14" height="10" rx="2" fill="#393e53" stroke="#f5f5f5" stroke-width="1"/>
+<text x="152" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">Hook / script</text>
+<rect x="232" y="472" width="14" height="10" rx="2" fill="rgba(245,245,245,0.05)" stroke="#bfc0c0" stroke-width="1"/>
+<text x="252" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">Generated file</text>
+<rect x="336" y="472" width="14" height="10" rx="2" fill="rgba(191,192,192,0.10)" stroke="#949eb2" stroke-width="1"/>
+<text x="356" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">Synced source</text>
+<rect x="436" y="472" width="14" height="10" rx="2" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+<text x="456" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">External</text>
+<path d="M 512,478 H 540" fill="none" stroke="#f08a59" stroke-width="1.4" marker-end="url(#relay-flow-dark-arrow-accent)"/>
+<text x="548" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">Main path</text>
+<path d="M 620,478 H 648" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#relay-flow-dark-arrow)"/>
+<text x="656" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">Flow</text>
+<path d="M 704,478 H 732" fill="none" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#relay-flow-dark-arrow)"/>
+<text x="740" y="480" fill="#bfc0c0" font-size="8.5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">On demand / sync</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>

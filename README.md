@@ -29,6 +29,11 @@ through a local search index. What an agent reads is the answer, not the corpus.
 
 ## How it works
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/relay-flow-dark.svg">
+  <img src="docs/diagrams/relay-flow.svg" width="100%" alt="One Relay session: the SessionStart hook injects the generated state into the agent; at the end of each reply the Stop hook launches after-turn, which reads the synced journal and brain and rebuilds the injected state and the RAG index.">
+</picture>
+
 **Rules have one owner each, in three layers.** `AGENTS.md` holds only the universal
 rules (loaded every session). `RULES/*.md` holds per-area rules with a `paths:`
 frontmatter, loaded the first time the agent touches a matching file. `DECISIONS.md`
@@ -105,6 +110,9 @@ npm run init
 builds status, index and state, and prints what is left to do. Re-running it is safe.
 Full procedure, permissions and upgrade from Relay 2: [`SETUP.md`](SETUP.md).
 
+> **Cloned before 2026-11-17?** The history was rewritten that day and an old clone cannot
+> pull: clone again and follow "Upgrading from Relay 2" in `SETUP.md`.
+
 | Command | What it does |
 |---|---|
 | `npm run init` | Set this machine up (idempotent; `-- --dry-run` to preview) |
@@ -148,6 +156,7 @@ relay/
 
   SKILLS/                  inbox and supervision shipped; yours stay personal
   PROJECTS/_template/      Starter files for a project
+  docs/diagrams/           README diagrams: HTML source, exported SVG
 
   generated, never committed nor synced:
   RELAY_LOG.md  relay-projects.derived.yml  .relay-state*  .relay-rag.json
