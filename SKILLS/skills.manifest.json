@@ -20,22 +20,22 @@
     {
       "name": "investigate",
       "src": "investigate",
-      "why": "native: a root-cause method you would not think to look for mid-bug; must trigger on its own before a second guessed fix"
+      "why": "on demand, shipped as an example: root-cause method for a bug not solved at first look; enable it natively only if token-scan shows you use it"
     },
     {
       "name": "spec",
       "src": "spec",
-      "why": "native: framing a fuzzy feature before coding is easy to skip; must trigger on its own"
+      "why": "on demand, shipped as an example: frame a fuzzy feature before coding; remove it if you never invoke it"
     },
     {
       "name": "qa",
       "src": "qa",
-      "why": "native: browser QA pass with a runaway guard; triggers on a QA request without the user knowing the name"
+      "why": "on demand, shipped as an example: browser QA pass with a runaway guard; remove it if you have no web project"
     },
     {
       "name": "product-design",
       "src": "product-design",
-      "why": "on demand: a visual overhaul is a deliberate decision; long body, zero cost until invoked"
+      "why": "on demand, shipped as an example: a visual overhaul is a deliberate decision; long body, zero cost until invoked"
     }
   ]
 }

@@ -9,6 +9,11 @@
 > machines, a dozen projects, Claude Code as orchestrator. Your numbers will differ; the
 > direction of each decision should not. Add your own entries on top.
 
+## 2026-11-21 — Shipped skills: examples on demand, none native
+
+- **Measured:** in the source system, over 14 days, `investigate` was invoked 0 times, `qa` and `spec` once each, while their native descriptions (~650 bytes together) were paid in every session.
+- **Decision:** Relay ships `inbox` and `supervision` (the framework needs them) plus `investigate`, `spec`, `qa` and `product-design` as **on-demand examples** (`disable-model-invocation: true`). An empty `SKILLS/` would teach nothing about writing a skill; native ones would impose a per-session cost on every user without proof of use. A user makes one native only once `token-scan --skills` shows the need.
+
 ## 2026-11-19 — Short sessions, deterministic checks, INBOX as deltas, third-party skills read in full
 
 - **Measured:** the main model re-read ~250k cached tokens on every call (7 days, 99 % cache reads): about 75 % of the spend at API prices, against ~2 % for Relay's fixed files. One INBOX proposal dropped out of 74, and no way to remove a rule. The rules file grew 7 % in three days. A "never" rule (`git add .`) was broken in nearly every session: per the Claude Code docs, an instruction is followed "usually", a hook always.

@@ -1,6 +1,7 @@
 ---
 name: spec
 description: "Turn a vague feature request into a precise spec in phases (why, scope, code-first technical questions, draft review, tasks) before implementing. Use before a non-trivial feature, not a one-liner."
+disable-model-invocation: true
 ---
 > Adapted from [gstack](https://github.com/garrytan/gstack) (MIT).
 

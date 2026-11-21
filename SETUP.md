@@ -139,7 +139,7 @@ headless browsing. With several agents in one workspace, each drives its own tab
 |---|---|---|
 | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `DECISIONS.md`, `RULES/`, `SETUP.md`, `README*` | yes | — |
 | `TOOLS/`, `relay-*-hook.js`, `package.json`, `package-lock.json` | yes | — |
-| `relay-brain.template.yml`, `SKILLS/skills.manifest.json`, shipped skills (`inbox`, `supervision`, `investigate`, `spec`, `qa`, `product-design`) | yes | — |
+| `relay-brain.template.yml`, `SKILLS/skills.manifest.json`, shipped skills (`inbox`, `supervision`; on-demand examples `investigate`, `spec`, `qa`, `product-design`) | yes | — |
 | `PROJECTS/_template/`, `SKILLS/_template/` | yes | — |
 | `relay-brain.yml`, `BRAIN/`, `relay-brain-history.yml` | no | yes |
 | `LOG/<host>.md`, `LOG/ARCHIVE/` | no | yes (one writer per file) |

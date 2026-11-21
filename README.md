@@ -65,6 +65,12 @@ journal and brain into a BM25 index in plain JavaScript — no native dependency
 description in the system prompt; it is listed by name in the injected state and invoked
 with `/name`. Native skills are kept for what an agent would not think to look for.
 
+**Skills shipped as examples, none loaded by default.** Besides `inbox` and `supervision`,
+which the framework needs, Relay ships `investigate`, `spec`, `qa` and `product-design`, all
+on demand: zero tokens until you type `/name`. They show what a good skill looks like.
+Remove from `SKILLS/skills.manifest.json` what you do not use (`npm run token-scan --
+--skills` lists the skills never invoked), and add your own: they stay personal.
+
 **Agents propose, the user decides.** Something learned that should last goes to
 `INBOX/<host>/` as a proposal, reviewed in batch with `/inbox`. No session rewrites the
 rules on its own. A proposal is a delta (`add | refine | remove`) with a measurement, and a
@@ -173,7 +179,7 @@ relay/
     supervision/           Multi-agent board, CLI, guard hook (Python, optional)
     tests/                 node --test, temp dirs only
 
-  SKILLS/                  inbox, supervision, investigate, spec, qa, product-design
+  SKILLS/                  inbox, supervision; examples on demand: investigate, spec, qa, product-design
   PROJECTS/_template/      Starter files for a project
   docs/diagrams/           README diagrams: HTML source, exported SVG
 

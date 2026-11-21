@@ -1,6 +1,7 @@
 ---
 name: investigate
 description: "Root-cause debugging for any bug, error, crash or failing test not solved at first look: evidence first, one hypothesis at a time, 3-strike escalation, fix with a regression test. Use before a second fix."
+disable-model-invocation: true
 ---
 
 ## When to use

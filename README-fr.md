@@ -69,6 +69,13 @@ journal et brain dans un index BM25 en JavaScript pur, sans dépendance native.
 figure dans l'état injecté et on l'appelle par `/nom`. Les skills natives sont réservées à ce
 qu'un agent ne penserait pas à chercher.
 
+**Des skills livrées en exemple, aucune chargée d'office.** En plus d'`inbox` et de
+`supervision`, dont le framework a besoin, Relay livre `investigate`, `spec`, `qa` et
+`product-design`, toutes à la demande : zéro jeton tant qu'on ne tape pas `/nom`. Elles
+montrent à quoi ressemble une bonne skill. Retirez de `SKILLS/skills.manifest.json` celles
+que vous n'utilisez pas (`npm run token-scan -- --skills` liste les skills jamais appelées)
+et ajoutez les vôtres : elles restent personnelles.
+
 **Les agents proposent, l'utilisateur décide.** Ce qui a été appris et mérite de durer part
 dans `INBOX/<hôte>/` sous forme de proposition, revue par lot avec `/inbox`. Aucune session ne
 réécrit les règles de son propre chef. Une proposition est un delta (`add | refine | remove`)
@@ -179,7 +186,7 @@ relay/
     supervision/           Tableau multi-agents, CLI, hook de garde (Python, optionnel)
     tests/                 node --test, dossiers temporaires uniquement
 
-  SKILLS/                  inbox, supervision, investigate, spec, qa, product-design
+  SKILLS/                  inbox, supervision ; exemples à la demande : investigate, spec, qa, product-design
   PROJECTS/_template/      Fichiers de départ d'un projet
   docs/diagrams/           Schémas du README : source HTML, SVG exporté
 

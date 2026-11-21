@@ -1,6 +1,7 @@
 ---
 name: qa
 description: "QA-test a web app in a real browser: triage findings by severity, fix one at a time with before/after screenshots and a regression test, with a runaway-loop guard. Use for a QA pass on a web project."
+disable-model-invocation: true
 ---
 > Adapted from [gstack](https://github.com/garrytan/gstack) (MIT).
 
