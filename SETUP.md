@@ -45,14 +45,16 @@ Written into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`) by the init, or
 
 | Event | Script | Role |
 |---|---|---|
-| `SessionStart` `startup\|resume\|clear\|compact` | `relay-start-hook.js` | injects the state targeted at the `cwd`'s project; re-injects it after every compaction |
+| `SessionStart` `startup\|resume\|clear\|compact` | `relay-start-hook.js` | injects the state targeted at the `cwd`'s project (or `RELAY_PROJECT`) and the resume card if under 48 h; re-injects them after every compaction; refreshes the state in the background |
 | `SessionStart` (async) | `relay-setup-hook.js` | repairs missing or stale hooks at every start, re-links skills and rules |
 | `Stop` | `relay-stop-hook.js` | asks once per session for today's journal entry; launches the detached after-turn work (journal merge, brain sync, state and index only if their inputs changed) |
 | `PreToolUse` `Bash` | `TOOLS/supervision/supervision-guard.js` | push guard during supervision; exits immediately otherwise |
 
 The script backs up your settings first, merges only its own entries — theme,
 permissions and other tools' hooks are preserved, a stale path is fixed in place — and
-refuses to touch an invalid `settings.json`. Upgrading from Relay 2: it removes the old
+refuses to touch an invalid `settings.json`. It also adds `permissions.deny` entries for
+`git add .`, `-A` and `--all`, and `statusLine.refreshInterval: 2` when the status line is
+Relay's and no value is set (the progress bar needs it to redraw during long commands). Upgrading from Relay 2: it removes the old
 `UserPromptSubmit` entry (`relay-session-hook.js`) by itself. Restart your agent afterwards.
 
 Two profiles (a personal and a work `CLAUDE_CONFIG_DIR`)? `RELAY_PROPAGATE_HOOKS=1`
@@ -137,7 +139,7 @@ headless browsing. With several agents in one workspace, each drives its own tab
 |---|---|---|
 | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `DECISIONS.md`, `RULES/`, `SETUP.md`, `README*` | yes | — |
 | `TOOLS/`, `relay-*-hook.js`, `package.json`, `package-lock.json` | yes | — |
-| `relay-brain.template.yml`, `SKILLS/skills.manifest.json`, shipped skills (`inbox`, `supervision`) | yes | — |
+| `relay-brain.template.yml`, `SKILLS/skills.manifest.json`, shipped skills (`inbox`, `supervision`, `investigate`, `spec`, `qa`, `product-design`) | yes | — |
 | `PROJECTS/_template/`, `SKILLS/_template/` | yes | — |
 | `relay-brain.yml`, `BRAIN/`, `relay-brain-history.yml` | no | yes |
 | `LOG/<host>.md`, `LOG/ARCHIVE/` | no | yes (one writer per file) |
@@ -145,6 +147,7 @@ headless browsing. With several agents in one workspace, each drives its own tab
 | `PROJECTS/<name>/` (unversioned), your own `SKILLS/<name>/` | no | yes |
 | Versioned projects (their own git clone, outside `PROJECTS/`) | their own remote | **no** |
 | `RELAY_LOG.md`, `relay-projects.derived.yml`, `.relay-state*`, `.relay-rag.json`, `.claude/skills/`, `.claude/rules/`, `.relay-supervision/` | no — generated | **no** — rebuilt on each machine |
+| `.relay-reprise/` (resume cards, local to the machine) | no | no |
 | `~/.claude/settings.json` (hooks) | no — per machine | no |
 
 The Git repository carries no personal data and can be shared publicly. The sync layer

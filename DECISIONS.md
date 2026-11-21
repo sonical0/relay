@@ -9,6 +9,36 @@
 > machines, a dozen projects, Claude Code as orchestrator. Your numbers will differ; the
 > direction of each decision should not. Add your own entries on top.
 
+## 2026-11-19 — Short sessions, deterministic checks, INBOX as deltas, third-party skills read in full
+
+- **Measured:** the main model re-read ~250k cached tokens on every call (7 days, 99 % cache reads): about 75 % of the spend at API prices, against ~2 % for Relay's fixed files. One INBOX proposal dropped out of 74, and no way to remove a rule. The rules file grew 7 % in three days. A "never" rule (`git add .`) was broken in nearly every session: per the Claude Code docs, an instruction is followed "usually", a hook always.
+- **Decision:**
+  - **Short sessions**: a resume card `.relay-reprise/<project>/<agent>.md` (≤ 600 bytes, local, not synced), re-injected by the start hook when under 48 h old, then `/clear`. The status line says "hand over" from 150k tokens. `RELAY_PROJECT` / `RELAY_AGENT` pick the state and the card when an agent starts from the root; sessions are named `<project>_<X>` so a handover never guesses who is who.
+  - **Hooks over prose**: `permissions.deny` for `git add .`, `-A`, `--all`, set by the setup hook; the matching sentence in `AGENTS.md` got shorter.
+  - **INBOX as deltas**: `operation: add | refine | remove`, the change only, a measurement required. A monthly `/inbox --prune` pass uses `token-scan --skills` (real usage of skills and rules) and never touches safety, approval, encoding or sync rules. The state alerts when `AGENTS.md` passes its size cap.
+  - **Third-party skill or tool**: scanner, then a **full read whatever the score** (a scanner without an LLM only knows known patterns), then adaptation; a `security:` line in the proposal.
+- **Sources:** Claude Code best practices; ACE (ICLR 2026, incremental deltas rather than rewrites); ETH 2602.11988 (a loaded context file can lower success); Chroma (context rot).
+
+## 2026-11-19 — Questions: one stop, "what next" announced
+
+- **Measured** (14 days of transcripts): 2.7 stops per active hour; 62 structured questions chained within one turn; ~35 "what do we do next?" while a plan already gave the order; the first option was picked 44 times out of 66 outside sensitive approvals.
+- **Decision:** one question call per stop; when a plan or a resume card gives the order, announce the next step and go on. Push, merge, deletion and ticket changes are always asked. Target: −30 % stops per hour.
+
+## 2026-11-19 — Hooks off the critical path; the stop hook asks for the cause
+
+- **Measured:** start hook median 1.9 s, p95 5.4 s, 2 timeouts out of 53 (state not injected). Cause: log merge and state regeneration run synchronously, node itself starting in ~0.5 s on Windows.
+- **Decision:** the start hook injects the existing state and refreshes it in the background (the stop hook regenerates it after each answer anyway). Result: 2.8 s → 0.5 s. When the stop hook blocks for a missing journal entry, it now also asks for the cause (forgotten, no work, written elsewhere) and an INBOX proposal with a durable fix. `TOOLS/hook-stats.mjs` measures hook durations from transcripts.
+
+## 2026-11-19 — Maintenance budget: no tool without a removal
+
+- **Found:** the framework's own work had reached 24 % of the journal entries over 7 days.
+- **Decision:** `RULES/tools.md`: no new tool or skill without a measured friction and a removal in exchange. The state alerts when framework work exceeds 20 % of the journal over 7 days. It also alerts on skill links that drift from the manifest and on the first sync-conflict file, so a conflict is seen the day it happens.
+
+## 2026-11-18 — Progress bar for long tasks in the status line
+
+- **Found:** a background scan of 20 repos and several CI runs of 2-4 minutes left the user asking "where is it at?".
+- **Decision:** `TOOLS/progress.mjs <k> <N>` writes a per-session file read by the status line (`statusLine.refreshInterval: 2`, set by the setup hook, otherwise the line does not redraw during a long Bash call). `progress-run.mjs` wraps a single long command, estimating time left from the median of its last 5 successful runs; `ci-progress.mjs` follows a GitHub CI run, the bar never going backwards (the job count grows at start), merging only with `--merge` after approval in the chat. A proportional estimate would have said ~0:25 for a 3 min 09 CI run.
+
 ## 2026-11-16 — `AGENTS.md` slimmed again: per-area detail moves to `RULES/`
 
 - **Measured:** 13.8 KB loaded every session (~5,100 tokens) out of 17.7 KB of permanent context. A merge of sync conflicts had just put a long rule back in.

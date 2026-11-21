@@ -71,7 +71,20 @@ qu'un agent ne penserait pas à chercher.
 
 **Les agents proposent, l'utilisateur décide.** Ce qui a été appris et mérite de durer part
 dans `INBOX/<hôte>/` sous forme de proposition, revue par lot avec `/inbox`. Aucune session ne
-réécrit les règles de son propre chef.
+réécrit les règles de son propre chef. Une proposition est un delta (`add | refine | remove`)
+accompagné d'une mesure, et une passe mensuelle `/inbox --prune` retire ce que l'usage réel
+montre jamais lu.
+
+**Des sessions courtes, reprises là où elles s'étaient arrêtées.** Relire un long contexte
+coûte bien plus que n'importe quel fichier de règles. En fin de tâche, l'agent écrit une fiche
+de reprise (≤ 600 octets) que le hook de démarrage réinjecte, puis l'utilisateur lance
+`/clear` ; la ligne d'état affiche « hand over » à partir de 150 k jetons. Le hook de démarrage
+injecte l'état existant tout de suite et le rafraîchit en arrière-plan.
+
+**Des hooks pour ce qui doit toujours arriver.** Une consigne est suivie en général, un hook
+toujours : `git add .` et `-A` sont refusés par `permissions.deny`, posé par le hook
+d'installation. Les tâches longues affichent une barre de progression et le temps restant
+estimé dans la ligne d'état.
 
 **Plusieurs agents sur un même projet : la supervision.** `TOOLS/supervision/` fait tourner un
 tableau de bord (superviseur, managers par périmètre, workers). Il génère pour chaque agent
@@ -97,6 +110,9 @@ Raisons et détails : [`DECISIONS.md`](DECISIONS.md).
 | Tout reconstruire après chaque réponse gaspille des écritures | ~220 fichiers identiques réécrits par réponse → seulement si les entrées changent, 1,1 s en détaché |
 | Deux machines sur un même journal perdent des entrées | 2 entrées perdues en une journée → un fichier par machine, plus aucune perte depuis |
 | La skill de supervision était lue en entier par chaque rôle | découpée par rôle : worker −72 %, superviseur −33 % |
+| Le contexte en cache est relu à chaque appel | ~250 k jetons par appel, ~75 % de la dépense → sessions courtes et fiche de reprise |
+| Hook de démarrage synchrone | 2 délais dépassés sur 53, 2,8 s → **0,5 s** avec un rafraîchissement en arrière-plan |
+| Questions enchaînées dans un même tour | 2,7 arrêts par heure → un appel de question par arrêt, suite annoncée |
 
 La règle qui compte le plus : **avant d'ajouter quoi que ce soit au contexte chargé à chaque
 session, mesurer.** Une chaîne `@include` a atteint 21 Ko sans que personne le voie.
@@ -125,6 +141,8 @@ Procédure complète, permissions et passage depuis Relay 2 : [`SETUP.md`](SETUP
 | `npm run brain -- --migrate` | Découper le brain pour plusieurs machines (une fois) |
 | `npm run hooks` | Réparer les hooks seuls |
 | `npm run supervision -- <projet>` | Lancer une session multi-agents supervisée |
+| `npm run token-scan` | Jetons par projet d'après les transcripts, relu par appel, usage des skills (`--skills`) |
+| `npm run hook-stats` | Durées des hooks d'après les transcripts (médiane, p95, délais dépassés) |
 | `npm test` | Lancer les tests des outils (dossiers temporaires uniquement) |
 
 ---
@@ -155,16 +173,19 @@ relay/
     skills-link.mjs        Lie les skills, copie RULES/ dans .claude/rules/
     log-rotate.mjs         Rotation mensuelle du journal et des notes du brain
     new-project.mjs        Crée et déclare un projet
+    token-scan.mjs         Jetons par projet, relu par appel, usage des skills
+    hook-stats.mjs         Durées des hooks lues dans les transcripts
+    progress.mjs / progress-run.mjs / ci-progress.mjs   Barre de progression de la ligne d'état
     supervision/           Tableau multi-agents, CLI, hook de garde (Python, optionnel)
     tests/                 node --test, dossiers temporaires uniquement
 
-  SKILLS/                  inbox et supervision livrées ; les vôtres restent personnelles
+  SKILLS/                  inbox, supervision, investigate, spec, qa, product-design
   PROJECTS/_template/      Fichiers de départ d'un projet
   docs/diagrams/           Schémas du README : source HTML, SVG exporté
 
   généré, jamais commité ni synchronisé :
   RELAY_LOG.md  relay-projects.derived.yml  .relay-state*  .relay-rag.json
-  .claude/skills/  .claude/rules/  .relay-supervision/
+  .claude/skills/  .claude/rules/  .relay-supervision/  .relay-reprise/
 ```
 
 ---

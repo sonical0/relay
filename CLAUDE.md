@@ -15,7 +15,7 @@ Installed in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`) by `npm run ini
 
 | Event | Script | Role |
 |---|---|---|
-| `SessionStart` `startup\|resume\|clear\|compact` | `relay-start-hook.js` | injects the targeted state; re-injects it after compaction |
+| `SessionStart` `startup\|resume\|clear\|compact` | `relay-start-hook.js` | injects the targeted state and the resume card; re-injects them after compaction; refreshes the state in the background |
 | `SessionStart` (async) | `relay-setup-hook.js` | repairs missing or stale hooks, re-links skills and rules |
 | `Stop` | `relay-stop-hook.js` | asks once for today's journal entry; launches the detached after-turn work |
 | `PreToolUse` `Bash` | `TOOLS/supervision/supervision-guard.js` | push guard during supervision; exits at once otherwise |

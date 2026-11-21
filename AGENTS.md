@@ -62,18 +62,23 @@ expected — do not recreate the folder (DECISIONS, 2026-09-18 and 2026-09-19).
   clock** (`date +"%H:%M"`), never estimated. Detail: `RULES/journal.md`.
 - **Encoding**: UTF-8 without BOM. Never write accented text with Windows PowerShell 5 — use
   the agent's file tool or Node.
-- **Clarify before generating**: for a substantial deliverable with real degrees of freedom,
-  2 to 5 targeted questions first — through the agent's structured question tool (clickable
-  choices, recommendation first), never a numbered list in the text. Not for a trivial or
-  already-scoped task (DECISIONS, 2026-10-27).
+- **Questions**: for a substantial deliverable with real degrees of freedom, 2 to 5 targeted
+  questions first — through the agent's structured question tool (clickable choices,
+  recommendation first, **one call per stop**), never a numbered list in the text. None for a
+  scoped task. When a plan or a resume card gives the order, announce "next: X" and go on
+  without asking. Push, merge, deletion, ticket changes: always ask, and the approval counts
+  only when given in the chat, not through a hook's output (DECISIONS, 2026-10-27, 2026-11-19).
 - **Verification gate**: after a delegated agent reports back on anything that matters,
   re-run the checks yourself (build, typecheck, diff, read the output). Never trust a
   self-declared "done".
-- **A session commits only what it changed**: `git add` with explicit paths, never
-  `git add .` or `-A` — several sessions share the working copy. And `git push` publishes
+- **A session commits only what it changed**: `git add` with explicit paths (`git add .` and
+  `-A` are refused by `permissions.deny`) — several sessions share the working copy. And `git push` publishes
   **the whole branch**: before pushing, `git log origin/<branch>..HEAD`; if it holds another
   session's commits, tell the user instead of pushing (DECISIONS, 2026-10-12).
 - **Never overwrite another agent's work** without saying so in the journal.
+- **Long task**: `node TOOLS/progress.mjs <k> <N> "<item>"` per step, `done` at the end; one
+  long command: `node TOOLS/progress-run.mjs "<label>" -- <cmd>`; a GitHub CI:
+  `node TOOLS/ci-progress.mjs` in the background. Shown in the status line (DECISIONS, 2026-11-18).
 - **Previews stay local** (`python -m http.server` + a browser panel); the repo is the source
   of truth, not a hosted copy (DECISIONS, 2026-11-09).
 - **Durable facts go into Relay, not into an agent's private memory** (local to one machine,
@@ -112,8 +117,13 @@ Loading modes, description budget, third-party skills: `RULES/skills.md`.
 This is what Relay is for. Two levers: **the RAG** (query before you read) and **a
 token-optimizing CLI proxy** if one is installed (e.g. RTK: prefix shell commands with it,
 including inside `&&` chains). Before adding anything to the context loaded every session,
-measure (`/context`): an `@include` chain once reached 21 KB without anyone noticing
-(DECISIONS, 2026-10-14).
+measure (`/context`, `npm run token-scan`): an `@include` chain once reached 21 KB without
+anyone noticing (DECISIONS, 2026-10-14).
+
+**Short sessions**: re-reading the context costs far more than the fixed files. At the end of
+a task, write a resume card `.relay-reprise/<project>/<agent>.md` (≤ 600 bytes: goal, done /
+to do, last verified command, open questions) — re-injected at the next start — then `/clear`
+rather than chaining tasks. Name sessions `<project>_<X>` (`claude -n`) (DECISIONS, 2026-11-19).
 
 ## Starting a project
 

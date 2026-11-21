@@ -67,7 +67,18 @@ with `/name`. Native skills are kept for what an agent would not think to look f
 
 **Agents propose, the user decides.** Something learned that should last goes to
 `INBOX/<host>/` as a proposal, reviewed in batch with `/inbox`. No session rewrites the
-rules on its own.
+rules on its own. A proposal is a delta (`add | refine | remove`) with a measurement, and a
+monthly `/inbox --prune` pass removes what real usage shows is never read.
+
+**Short sessions, picked up where they stopped.** Re-reading a long context costs far more
+than any rule file. At the end of a task the agent writes a resume card (≤ 600 bytes) that
+the start hook re-injects, then the user runs `/clear`; the status line says "hand over" from
+150k tokens. The start hook injects the existing state at once and refreshes it in the
+background.
+
+**Hooks for what must always happen.** An instruction is followed usually, a hook always:
+`git add .` and `-A` are refused by `permissions.deny`, set by the setup hook. Long tasks
+draw a progress bar with an estimated time left in the status line.
 
 **Several agents on one project: supervision.** `TOOLS/supervision/` runs a board
 (supervisor, managers by scope, workers), generates a resume sheet per agent that the
@@ -93,6 +104,9 @@ details: [`DECISIONS.md`](DECISIONS.md).
 | Rebuilding after every reply wastes writes | ~220 identical files per reply → only when inputs changed, 1.1 s detached |
 | Two machines on one journal lose entries | 2 entries lost in a day → one file per machine, 0 since |
 | Supervision skill read whole by every role | split by role: worker −72 %, supervisor −33 % |
+| Cached context re-read on every call | ~250k tokens per call, ~75 % of the spend → short sessions and a resume card |
+| Synchronous start hook | 2 timeouts out of 53, 2.8 s → **0.5 s** with a background refresh |
+| Questions chained in one turn | 2.7 stops per hour → one question call per stop, "next" announced |
 
 The rule that matters most: **before adding anything to the context loaded every
 session, measure.** An `@include` chain once reached 21 KB without anyone noticing.
@@ -121,6 +135,8 @@ Full procedure, permissions and upgrade from Relay 2: [`SETUP.md`](SETUP.md).
 | `npm run brain -- --migrate` | Split the brain for several machines (once) |
 | `npm run hooks` | Repair the hooks on their own |
 | `npm run supervision -- <project>` | Start a supervised multi-agent run |
+| `npm run token-scan` | Tokens per project from the transcripts, re-read per call, `--skills` usage |
+| `npm run hook-stats` | Hook durations from the transcripts (median, p95, timeouts) |
 | `npm test` | Run the tool tests (temp dirs only) |
 
 ---
@@ -151,16 +167,19 @@ relay/
     skills-link.mjs        Links skills, copies RULES/ to .claude/rules/
     log-rotate.mjs         Monthly journal and brain-note rotation
     new-project.mjs        Creates and registers a project
+    token-scan.mjs         Token usage per project, re-read per call, skill usage
+    hook-stats.mjs         Hook durations read from transcripts
+    progress.mjs / progress-run.mjs / ci-progress.mjs   Status-line progress bar
     supervision/           Multi-agent board, CLI, guard hook (Python, optional)
     tests/                 node --test, temp dirs only
 
-  SKILLS/                  inbox and supervision shipped; yours stay personal
+  SKILLS/                  inbox, supervision, investigate, spec, qa, product-design
   PROJECTS/_template/      Starter files for a project
   docs/diagrams/           README diagrams: HTML source, exported SVG
 
   generated, never committed nor synced:
   RELAY_LOG.md  relay-projects.derived.yml  .relay-state*  .relay-rag.json
-  .claude/skills/  .claude/rules/  .relay-supervision/
+  .claude/skills/  .claude/rules/  .relay-supervision/  .relay-reprise/
 ```
 
 ---
