@@ -29,6 +29,7 @@ relay-projects.derived.yml
 .relay-state/
 .relay-rag.json
 .relay-supervision/
+.relay-reprise/
 .claude/skills/
 .claude/rules/
 TOOLS/supervision/run/

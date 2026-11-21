@@ -16,8 +16,13 @@
  *                                                                      outside supervision)
  * Removed when found: relay-session-hook.js (UserPromptSubmit, replaced 2026-10-14).
  *
+ * Also, in the same settings.json:
+ *   permissions.deny   `git add .` / `-A` / `--all` (and their `rtk` variants): a deny rule
+ *                      always applies, where prose in AGENTS.md is only followed usually.
+ *   statusLine         refreshInterval 2 when the status line is Relay's (progress bar).
+ *
  * Merge rule: only add what is missing and fix stale paths; never touch another tool's
- * hook. Hook configuration is local to the machine and never committed.
+ * hook, never remove or override a user entry. Local to the machine, never committed.
  */
 
 const fs = require('fs');
@@ -99,6 +104,38 @@ function mergeHooks(hooks) {
   return changes;
 }
 
+// "Never `git add .` or `-A`" protects a working copy shared by several sessions: a deny
+// rule is deterministic. `rtk` variants included (its hook rewrites commands); the
+// PowerShell tool escapes Bash(...) rules on Windows. Add only: user entries are kept.
+const DENY = ['git add .', 'git add -A', 'git add -A *', 'git add --all', 'git add --all *']
+  .flatMap((c) => [`Bash(${c})`, `Bash(rtk ${c})`, `PowerShell(${c})`]);
+function mergeDeny(s) {
+  if (s.permissions != null && (typeof s.permissions !== 'object' || Array.isArray(s.permissions))) return [];
+  s.permissions ??= {};
+  if (!Array.isArray(s.permissions.deny)) s.permissions.deny = [];
+  const missing = DENY.filter((r) => !s.permissions.deny.includes(r));
+  if (!missing.length) return [];
+  s.permissions.deny.push(...missing);
+  return [`permissions.deny → global git add (${missing.length})`];
+}
+
+// The progress bar (TOOLS/progress.mjs, read by TOOLS/supervision/statusline.py) only moves
+// during a long Bash command if the status line redraws by itself (DECISIONS.md, 2026-11-18).
+// Set only for Relay's status line, and only when missing: a user value is kept.
+function mergeStatusLine(s) {
+  const sl = s.statusLine;
+  if (!sl || typeof sl !== 'object' || typeof sl.command !== 'string' || sl.refreshInterval != null) return [];
+  if (!/supervision[\\/]+statusline\.py/i.test(sl.command)) return [];
+  sl.refreshInterval = 2;
+  return ['statusLine → refreshInterval 2'];
+}
+
+/** Everything Relay adds to a settings object, in place. Returns the list of changes. */
+function mergeSettings(s) {
+  if (!s.hooks || typeof s.hooks !== 'object') s.hooks = {};
+  return [...mergeHooks(s.hooks), ...mergeDeny(s), ...mergeStatusLine(s)];
+}
+
 /** Reads a settings.json. Absent → {}. Unreadable or invalid → null (never rewrite it). */
 function readSettings(file) {
   if (!fs.existsSync(file)) return {};
@@ -125,8 +162,7 @@ function writeSettings(file, settings) {
 const settings = readSettings(settingsPath);
 let changes = [];
 if (settings) {
-  if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {};
-  changes = mergeHooks(settings.hooks);
+  changes = mergeSettings(settings);
   if (changes.length) {
     try { writeSettings(settingsPath, settings); } catch (e) {
       process.stderr.write(`[RELAY] Could not write ${settingsPath} (${e.message}).\n`);
@@ -140,7 +176,7 @@ if (settings) {
 try {
   const skillsLink = path.join(__dirname, 'TOOLS', 'skills-link.mjs');
   if (fs.existsSync(skillsLink)) {
-    require('child_process').execFileSync(process.execPath, [skillsLink], { stdio: 'ignore', timeout: 10000 });
+    require('child_process').execFileSync(process.execPath, [skillsLink], { stdio: 'ignore', timeout: 10000, windowsHide: true });
   }
 } catch (_) {}
 
@@ -151,10 +187,9 @@ for (const dir of siblingConfigDirs) {
   if (!fs.existsSync(sibPath)) continue;
   const sib = readSettings(sibPath);
   if (!sib) continue;
-  if (!sib.hooks || typeof sib.hooks !== 'object') sib.hooks = {};
-  const c = mergeHooks(sib.hooks);
+  const c = mergeSettings(sib);
   if (!c.length) continue;
-  try { writeSettings(sibPath, sib); process.stderr.write(`[RELAY] Hooks completed in ${sibPath}: ${c.join(', ')}\n`); }
+  try { writeSettings(sibPath, sib); process.stderr.write(`[RELAY] Settings completed in ${sibPath}: ${c.join(', ')}\n`); }
   catch (e) { process.stderr.write(`[RELAY] Propagation to ${dir} failed: ${e.message}\n`); }
 }
 
@@ -162,7 +197,7 @@ if (changes.length) {
   const box = (s) => `|  ${s.padEnd(56)}|`;
   process.stderr.write([
     '', '+' + '-'.repeat(58) + '+',
-    box('RELAY — HOOKS UPDATED'),
+    box('RELAY — SETTINGS UPDATED'),
     '+' + '-'.repeat(58) + '+',
     ...changes.map((h) => box('+ ' + h)),
     '+' + '-'.repeat(58) + '+',

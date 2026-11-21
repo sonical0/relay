@@ -5,7 +5,8 @@
  *   1. If this machine has no journal entry for today in LOG/<host>.md, block ONCE per
  *      session and ask for one (exit 0 + {decision:"block"}; exit 2 would make Claude Code
  *      ignore the JSON and show "Stop hook error"). A second pass only warns, so the end
- *      of a session can never loop.
+ *      of a session can never loop. The message also asks for the cause of the miss and a
+ *      durable fix, proposed in INBOX/<host>/.
  *   2. Launch TOOLS/relay-after-turn.mjs DETACHED: journal merge, brain sync, and — only
  *      when their inputs changed — state and RAG index. Project scan at most once a day,
  *      log rotation at most once a month.
@@ -71,7 +72,10 @@ if (!logged && process.env.RELAY_UNATTENDED !== '1') {
       reason:
         `[RELAY] No journal entry for ${today} on this machine.\n` +
         `Add at the TOP of ${HOST_LOG} (after its header) an entry "## ${today} ${hhmm} — Agent (project: subject)" ` +
-        '(at most 5 bullets of 15 words) before finishing. Do not write to RELAY_LOG.md: it is generated.',
+        '(at most 5 bullets of 15 words) before finishing. Do not write to RELAY_LOG.md: it is generated.\n' +
+        // Each block should name its cause, so it gets fixed at the source (DECISIONS.md, 2026-11-19).
+        'Then identify why no entry for today existed (forgot at the end of the task, session without work to log, ' +
+        `entry written elsewhere, other) and write a proposal in INBOX/${host}/ "journal block cause" with a durable fix.`,
     }));
     process.exit(0);
   }
@@ -93,7 +97,7 @@ if (rotDue) { try { fs.writeFileSync(rotStamp, today.slice(0, 7), 'utf8'); } cat
 // Detached: the end of a reply has no reason to wait for an index rebuild.
 try {
   const script = path.join(root, 'TOOLS', 'relay-after-turn.mjs');
-  if (fs.existsSync(script)) spawn(process.execPath, [script, ...extra], { detached: true, stdio: 'ignore', cwd: root }).unref();
+  if (fs.existsSync(script)) spawn(process.execPath, [script, ...extra], { detached: true, stdio: 'ignore', cwd: root, windowsHide: true }).unref();
 } catch (_) {}
 
 process.stdout.write('{}');

@@ -11,7 +11,12 @@
  *    `compact` matcher re-injects it, so the agent still knows where it is late in a
  *    long session.
  *
- * Input: JSON on stdin ({ session_id, cwd, source, ... }). Output: JSON
+ * Also injects: the session identity (warns when unnamed), and the resume card the agent wrote
+ * before its last /clear (`.relay-reprise/<project>/<agent>.md`, local, < 48 h). RELAY_PROJECT
+ * and RELAY_AGENT, set by whoever launches the agent, pick the targeted state and the card
+ * when the agent starts from the root (to keep AGENTS.md and the skills loaded).
+ *
+ * Input: JSON on stdin ({ session_id, cwd, source, transcript_path, ... }). Output: JSON
  * { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } }.
  * No dependencies: it runs before anything else.
  */
@@ -29,14 +34,31 @@ const host = process.env.RELAY_HOST || os.hostname();
 
 let cwd = '';
 let source = '';
+let transcript = '';
+let sessionId = '';
 try {
   const raw = fs.readFileSync(0, 'utf8');
   if (raw.trim()) {
     const payload = JSON.parse(raw);
     cwd = payload.cwd ?? '';
     source = payload.source ?? '';
+    transcript = String(payload.transcript_path ?? '');
+    sessionId = String(payload.session_id ?? '');
   }
 } catch (_) {}
+const safeName = (s) => String(s).replace(/[^\w-]/g, '_');
+const envProject = process.env.RELAY_PROJECT ? safeName(process.env.RELAY_PROJECT) : '';
+
+// Session → project, read by TOOLS/token-scan.mjs before the cwd: an agent launched from the
+// root with RELAY_PROJECT would otherwise be counted as "relay". Local, like the transcripts.
+if (envProject && /^[\w-]{8,64}$/.test(sessionId)) {
+  try {
+    const dir = path.join(relayRoot, '.relay-reprise');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, '_sessions.tsv'),
+      `${sessionId}\t${envProject}\t${safeName(process.env.RELAY_AGENT || '')}\t${new Date().toISOString()}\n`, 'utf8');
+  } catch (_) {}
+}
 
 // Windows does not distinguish path case; path.resolve() does. A harness reporting a cwd
 // of "documents" while the index says "Documents" would otherwise miss in silence.
@@ -78,8 +100,11 @@ function under(here, dir) {
 // state used to be rebuilt only at the end of a reply (Stop hook), so a machine switched
 // back on injected a state without the sessions done elsewhere meanwhile. Signature of
 // LOG/*.md (name, size, mtime) compared by EQUALITY, not "newer": sync tools keep the
-// origin machine's mtime. If it changed: merge the journal then rebuild the state, under
-// a 2 s budget each. Failure or timeout: inject the state as it is.
+// origin machine's mtime. If it changed: merge the journal then rebuild the state.
+// DETACHED, off the critical path: run synchronously, the two scripts cost several
+// seconds and the hook sometimes hit its 5 s timeout, starting a session with no state
+// at all. The existing state is injected now; the refreshed one serves the next reply
+// (the Stop hook rebuilds it after every reply anyway). See DECISIONS.md, 2026-11-19.
 function refreshIfLogsChanged() {
   const stamp = path.join(os.tmpdir(), `relay-start-logs-${crypto.createHash('sha1')
     .update(relayRoot.toLowerCase()).digest('hex').slice(0, 12)}.stamp`);
@@ -93,11 +118,12 @@ function refreshIfLogsChanged() {
   try { last = fs.readFileSync(stamp, 'utf8'); } catch (_) {}
   if (sig === last) return;
   try {
-    const { execFileSync } = require('child_process');
-    for (const script of ['relay-log.mjs', 'relay-state.mjs']) {
-      const p = path.join(relayRoot, 'TOOLS', script);
-      if (fs.existsSync(p)) execFileSync(process.execPath, [p], { cwd: relayRoot, stdio: 'ignore', timeout: 2000 });
-    }
+    const chain = ['relay-log.mjs', 'relay-state.mjs']
+      .map((s) => path.join(relayRoot, 'TOOLS', s)).filter((p) => fs.existsSync(p))
+      .map((p) => `require('child_process').execFileSync(process.execPath,[${JSON.stringify(p)}],{cwd:${JSON.stringify(relayRoot)},stdio:'ignore',timeout:60000,windowsHide:true})`)
+      .join(';');
+    if (!chain) return;
+    require('child_process').spawn(process.execPath, ['-e', chain], { detached: true, stdio: 'ignore', cwd: relayRoot, windowsHide: true }).unref();
     fs.writeFileSync(stamp, sig, 'utf8');
   } catch (_) {}
 }
@@ -107,13 +133,15 @@ function pickState() {
   try {
     const index = JSON.parse(fs.readFileSync(path.join(stateDir, 'index.json'), 'utf8'));
     const here = cwd || process.cwd();
-    let best = null;
-    for (const e of index) {
+    // RELAY_PROJECT (set by a launcher) wins over the cwd: an agent started from the root
+    // still gets its project's state.
+    let best = envProject ? index.find((e) => e.name === process.env.RELAY_PROJECT) ?? null : null;
+    if (!best) for (const e of index) {
       if (under(here, e.dir) && (!best || path.resolve(e.dir).length > path.resolve(best.dir).length)) best = e;
     }
     if (best) {
       const p = path.join(stateDir, best.file);
-      return { text: fs.readFileSync(p, 'utf8').trim(), mtime: fs.statSync(p).mtimeMs };
+      return { text: fs.readFileSync(p, 'utf8').trim(), mtime: fs.statSync(p).mtimeMs, project: best.name };
     }
   } catch (_) {}
   try {
@@ -164,6 +192,53 @@ try {
       lines.push('', `[RELAY · supervision] Resume sheet for this session (generated ${ageMin} min ago):`, '',
         fs.readFileSync(p, 'utf8').trim());
     }
+  }
+} catch (_) {}
+
+// Session identity. Convention: a session is named `<project>_<X>` (`claude -n <project>_<X>`,
+// or /rename), which is also its address for messages between agents. The name comes from
+// the launcher (RELAY_PROJECT + RELAY_AGENT) or from the transcript's title record.
+try {
+  let name = envProject && process.env.RELAY_AGENT ? `${envProject}_${safeName(process.env.RELAY_AGENT)}` : '';
+  if (!name && transcript && fs.existsSync(transcript)) {
+    const fd = fs.openSync(transcript, 'r');
+    const size = fs.fstatSync(fd).size;
+    const buf = Buffer.alloc(Math.min(size, 256 * 1024));
+    fs.readSync(fd, buf, 0, buf.length, Math.max(0, size - buf.length));
+    fs.closeSync(fd);
+    const titles = [...buf.toString('utf8').matchAll(/"customTitle"\s*:\s*"([^"]{1,80})"/g)];
+    if (titles.length) name = titles[titles.length - 1][1];
+  }
+  const project = (picked && picked.project) || envProject || '';
+  if (name) lines.push('', `[RELAY · session] ${name}${project ? ` — project ${project}` : ''}.`);
+  else lines.push('', `[RELAY · session] No session name detected: name it \`${project || '<project>'}_<X>\` (\`claude -n …\` at launch, or /rename) so other agents can address it.`);
+} catch (_) {}
+
+// Short sessions: before /clear or at the end of a task, the agent writes a resume card,
+// .relay-reprise/<project>/<agent>.md (<= 600 bytes; local, never synced or committed). It is
+// re-injected while younger than 48 h; its path is always given so the agent knows where
+// to write it. Under wmux (optional), the default agent id is per pane and the card carries
+// `surface: <id>` on its first line: a card written from another pane is not resumed.
+try {
+  const surface = process.env.WMUX_SURFACE_ID || '';
+  const project = safeName((picked && picked.project) || envProject || 'relay');
+  const fallback = surface ? `pane-${surface.replace(/^surf-/, '').replace(/[^\w-]/g, '').slice(0, 8)}` : 'main';
+  const agent = safeName(process.env.RELAY_AGENT || fallback);
+  const card = path.join(relayRoot, '.relay-reprise', project, `${agent}.md`);
+  const howTo = `resume card <= 600 bytes (goal, done / to do, last verified command, open questions) in ${card}${surface ? `, first line \`surface: ${surface}\`` : ''}`;
+  if (fs.existsSync(card)) {
+    const ageH = (Date.now() - fs.statSync(card).mtimeMs) / 3600000;
+    const text = fs.readFileSync(card, 'utf8').trim();
+    const author = (text.match(/^surface:\s*(\S+)/m) || [])[1] || '';
+    if (ageH > 48) {
+      lines.push('', `[RELAY · resume] Card older than 48 h ignored (${card}): rewrite it before the next /clear.`);
+    } else if (surface && author && author !== surface) {
+      lines.push('', `[RELAY · resume] ${card} comes from another pane (${author}): do NOT resume it. Before /clear or at the end of a task: ${howTo}.`);
+    } else {
+      lines.push('', `[RELAY · resume] Resume card (${Math.round(ageH)} h old) — pick up where the previous session stopped:`, text.slice(0, 1200));
+    }
+  } else {
+    lines.push('', `[RELAY · resume] Before /clear or at the end of a task: ${howTo}.`);
   }
 } catch (_) {}
 
