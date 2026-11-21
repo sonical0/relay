@@ -16,6 +16,26 @@
       "name": "supervision",
       "src": "supervision",
       "why": "on demand: read by supervisor, managers and workers when a supervised run starts"
+    },
+    {
+      "name": "investigate",
+      "src": "investigate",
+      "why": "native: a root-cause method you would not think to look for mid-bug; must trigger on its own before a second guessed fix"
+    },
+    {
+      "name": "spec",
+      "src": "spec",
+      "why": "native: framing a fuzzy feature before coding is easy to skip; must trigger on its own"
+    },
+    {
+      "name": "qa",
+      "src": "qa",
+      "why": "native: browser QA pass with a runaway guard; triggers on a QA request without the user knowing the name"
+    },
+    {
+      "name": "product-design",
+      "src": "product-design",
+      "why": "on demand: a visual overhaul is a deliberate decision; long body, zero cost until invoked"
     }
   ]
 }

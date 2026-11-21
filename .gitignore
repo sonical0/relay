@@ -10,6 +10,10 @@ SKILLS/**/SKILL.md
 !SKILLS/_template/SKILL.md
 !SKILLS/inbox/SKILL.md
 !SKILLS/supervision/SKILL.md
+!SKILLS/investigate/SKILL.md
+!SKILLS/spec/SKILL.md
+!SKILLS/qa/SKILL.md
+!SKILLS/product-design/SKILL.md
 
 # The active brain (machines, paths, project intent), its chunks and its history
 relay-brain.yml
