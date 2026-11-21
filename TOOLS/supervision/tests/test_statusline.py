@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from tests.base import PROJECT, SUP, IsolatedTestCase
@@ -33,10 +34,10 @@ def fake_server(received):
 
 
 class Statusline(IsolatedTestCase):
-    def run_statusline(self, **env):
+    def run_statusline(self, payload=None, **env):
         base = {k: v for k, v in os.environ.items() if k not in ("SUP_URL", "SUP_PROJECT", "SUP_AGENT")}
         base.update(env)
-        return subprocess.run([sys.executable, str(SUP / "statusline.py")], input=json.dumps(PAYLOAD), env=base,
+        return subprocess.run([sys.executable, str(SUP / "statusline.py")], input=json.dumps(payload or PAYLOAD), env=base,
                               capture_output=True, text=True, encoding="utf-8", timeout=30)
 
     def port_file(self, project, srv):
@@ -93,3 +94,61 @@ class Statusline(IsolatedTestCase):
         r = self.run_statusline(SUP_PROJECT=PROJECT)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("5 h 42 %", r.stdout)
+
+
+SID = "zz-test-session"
+
+
+class StatuslineProgressAndHandOver(IsolatedTestCase):
+    """Progress bar written by TOOLS/progress.mjs (<tmp>/relay-progress/<session>.json, tmp redirected into the test
+    root) and the hand-over hint past 150 k tokens of context."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = self.root / "tmp"
+        (self.tmp / "relay-progress").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "relay-progress" / f"{SID}.json").unlink(missing_ok=True)  # the root may be shared by the class
+
+    def run_with(self, payload, bar=None):
+        if bar is not None:
+            (self.tmp / "relay-progress" / f"{SID}.json").write_text(json.dumps(bar), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k not in ("SUP_PROJECT", "SUP_AGENT")}
+        env.update(TMPDIR=str(self.tmp), TEMP=str(self.tmp), TMP=str(self.tmp))
+        r = subprocess.run([sys.executable, str(SUP / "statusline.py")], input=json.dumps({**payload, "session_id": SID}),
+                           env=env, capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_bar_with_remaining_time(self):
+        now = time.time() * 1000
+        out = self.run_with(PAYLOAD, {"k": 3, "n": 10, "label": "item c", "ts": now, "start": now, "remaining_s": 75})
+        self.assertIn("[███░░░░░░░] 3/10 · ~1:15 left · item c", out)
+
+    def test_bar_proportional_remaining_time(self):
+        now = time.time() * 1000
+        out = self.run_with(PAYLOAD, {"k": 2, "n": 4, "label": "", "ts": now, "start": now - 60_000})
+        self.assertIn("2/4 · ~1:00 left", out)
+
+    def test_stale_bar_ignored(self):
+        old = time.time() * 1000 - 16 * 60 * 1000
+        out = self.run_with(PAYLOAD, {"k": 3, "n": 10, "label": "x", "ts": old, "start": old})
+        self.assertNotIn("3/10", out)
+
+    def test_no_bar_file(self):
+        out = self.run_with(PAYLOAD)
+        self.assertNotIn("[", out)
+        self.assertIn("5 h 42 %", out)
+
+    def test_hand_over_past_150k(self):
+        heavy = {**PAYLOAD, "context_window": {"used_percentage": 80.0, "current_usage": {
+            "input_tokens": 10, "cache_creation_input_tokens": 5_000, "cache_read_input_tokens": 155_000}}}
+        out = self.run_with(heavy)
+        self.assertIn("160 k: hand over: write resume card, /clear", out)
+
+    def test_hand_over_from_percentage_and_window_size(self):
+        p = {**PAYLOAD, "context_window": {"used_percentage": 20.0, "context_window_size": 1_000_000}}
+        self.assertIn("hand over", self.run_with(p))
+
+    def test_no_hand_over_below_150k(self):
+        p = {**PAYLOAD, "context_window": {"used_percentage": 40.0, "current_usage": {"cache_read_input_tokens": 80_000}}}
+        self.assertNotIn("hand over", self.run_with(p))

@@ -1,6 +1,6 @@
 {
   "name": "relay-framework",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "Portable coordination framework for multi-agent AI CLI workflows",
   "license": "MIT",
@@ -18,6 +18,8 @@
     "rag": "node TOOLS/rag-query.mjs",
     "rotate": "node TOOLS/log-rotate.mjs --brain",
     "hooks": "node relay-setup-hook.js",
+    "token-scan": "node TOOLS/token-scan.mjs",
+    "hook-stats": "node TOOLS/hook-stats.mjs",
     "test": "node --test \"TOOLS/tests/*.test.mjs\"",
     "supervision": "node TOOLS/supervision/py.mjs TOOLS/supervision/launch.py",
     "supervision:test": "node TOOLS/supervision/py.mjs -m unittest discover -s TOOLS/supervision/tests -t TOOLS/supervision"
