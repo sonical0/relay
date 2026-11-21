@@ -78,3 +78,90 @@ test('an unchanged scan still refreshes the date relay-state reads (no stale-sta
   sb.run('relay-state.mjs');
   assert.doesNotMatch(sb.read('.relay-state.md'), /project status is \d+ d old|not computed/);
 });
+
+const alertsLine = (sb) => sb.read('.relay-state.md').split('\n').find((l) => l.startsWith('**Alerts**')) ?? '';
+
+test('skill links that differ from the manifest are flagged, silent when they match', (t) => {
+  const sb = sandbox({
+    'relay-brain.yml': brainText(),
+    'SKILLS/skills.manifest.json': JSON.stringify({ skills: [
+      { name: 'kept', src: 'kept' }, { name: 'added', src: 'added' }, { name: 'gone', src: 'no-source' },
+    ] }),
+    'SKILLS/kept/SKILL.md': '---\nname: kept\ndisable-model-invocation: true\n---\n',
+    'SKILLS/added/SKILL.md': '---\nname: added\ndisable-model-invocation: true\n---\n',
+    '.claude/skills/kept/SKILL.md': '---\nname: kept\ndisable-model-invocation: true\n---\n',
+    '.claude/skills/archived/SKILL.md': '---\nname: archived\ndisable-model-invocation: true\n---\n',
+  });
+  t.after(sb.cleanup);
+  sb.run('relay-state.mjs');
+  const line = alertsLine(sb);
+  assert.match(line, /skill links ≠ manifest \(missing: added; extra: archived\) → node TOOLS\/skills-link\.mjs --prune/);
+  // A manifest entry without source is skills-link's error, not a missing link.
+  assert.doesNotMatch(line, /gone/);
+
+  sb.write('.claude/skills/added/SKILL.md', '---\nname: added\ndisable-model-invocation: true\n---\n');
+  fs.rmSync(path.join(sb.root, '.claude/skills/archived'), { recursive: true });
+  sb.run('relay-state.mjs');
+  assert.doesNotMatch(alertsLine(sb), /skill links/);
+});
+
+test('sync conflict files are counted with their folders, skipping BACKUPS/ and ARCHIVE/', (t) => {
+  const sb = sandbox({ 'relay-brain.yml': brainText() });
+  t.after(sb.cleanup);
+  sb.run('relay-state.mjs');
+  assert.doesNotMatch(alertsLine(sb), /sync conflict/);
+
+  sb.write('PROJECTS/demo/notes.sync-conflict-20260101-120000-ABCDEFG.md', 'x');
+  sb.write('LOG/HOST-A (conflicted copy 2026-01-01).md', 'x');
+  sb.write('BACKUPS/old.sync-conflict-20250101-120000-ABCDEFG.md', 'x');
+  sb.write('ARCHIVE/x/old (conflicted copy).md', 'x');
+  sb.write('node_modules/pkg/a.sync-conflict-1.js', 'x');
+  sb.run('relay-state.mjs');
+  const line = alertsLine(sb);
+  assert.match(line, /2 sync conflict file\(s\) \(/);
+  assert.match(line, /PROJECTS\/demo/);
+  assert.match(line, /\bLOG\b/);
+  assert.doesNotMatch(line, /BACKUPS\/old|ARCHIVE\/x|node_modules/);
+});
+
+test('AGENTS.md over its 9 KB cap calls for a removal pass', (t) => {
+  const sb = sandbox({ 'relay-brain.yml': brainText(), 'AGENTS.md': 'x'.repeat(9 * 1024) });
+  t.after(sb.cleanup);
+  sb.run('relay-state.mjs');
+  assert.doesNotMatch(alertsLine(sb), /AGENTS\.md/);
+  sb.write('AGENTS.md', 'x'.repeat(9 * 1024 + 1));
+  sb.run('relay-state.mjs');
+  assert.match(alertsLine(sb), /AGENTS\.md at 9217 B \(cap 9216\) → removal pass: \/inbox --prune/);
+});
+
+test('tooling budget: alert past 20 % of the last 7 days of journal, pro rata, silent below', (t) => {
+  const entry = (d, project, n) => `## ${day(-d)} 09:${String(n).padStart(2, '0')} — Claude (${project}: subject ${n})\n- [x] bullet\n\n`;
+  const write = (sb, tooling) => {
+    // 10 recent entries over two machines: `tooling` on relay, one shared (relay + demo, counts 0.5),
+    // the rest on demo. Plus old relay entries that must not count.
+    let a = '# Log\n\n', b = '# Log\n\n';
+    for (let i = 0; i < 10; i++) {
+      const p = i < tooling ? 'relay' : i === tooling ? 'relay + demo' : 'demo';
+      if (i % 2) a += entry(i % 6, p, i); else b += entry(i % 6, p, i);
+    }
+    for (let i = 0; i < 20; i++) a += entry(10 + i, 'relay', i);
+    sb.write('LOG/HOST-A.md', a);
+    sb.write('LOG/HOST-B.md', b);
+  };
+  const sb = sandbox({ 'relay-brain.yml': brainText() });
+  t.after(sb.cleanup);
+
+  write(sb, 1); // 1.5 / 10 = 15 %
+  sb.run('relay-state.mjs');
+  assert.doesNotMatch(alertsLine(sb), /tooling/);
+
+  write(sb, 2); // 2.5 / 10 = 25 %
+  sb.run('relay-state.mjs');
+  assert.match(alertsLine(sb), /tooling at 25 % of the journal over 7 days \(target < 20 %\) → no new tool without removing one/);
+
+  // Fewer than 10 recent entries: too few to mean anything.
+  sb.write('LOG/HOST-A.md', `# Log\n\n${entry(0, 'relay', 1)}${entry(1, 'relay', 2)}`);
+  sb.write('LOG/HOST-B.md', '# Log\n');
+  sb.run('relay-state.mjs');
+  assert.doesNotMatch(alertsLine(sb), /tooling/);
+});

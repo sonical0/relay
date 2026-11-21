@@ -37,6 +37,15 @@ const stateDir = path.join(ROOT_DIR, '.relay-state');
 
 const MAX_BYTES = 1400;
 const SKILLS_DESC_BUDGET = 4000;
+// AGENTS.md is loaded in every session (~0.37 token/byte): past this cap, remove before adding.
+const AGENTS_MD_BUDGET = 9 * 1024;
+// Maintenance budget (RULES/tools.md, DECISIONS, 2026-11-19): journal projects that are the
+// framework itself, and the share of the last 7 days' entries they may take.
+const TOOLING = new Set(['relay']);
+const TOOLING_MAX = 0.2;
+const TOOLING_MIN_ENTRIES = 10;
+// Folders never searched for sync conflict files.
+const SYNC_SKIP = new Set(['node_modules', '.git', 'BACKUPS', 'ARCHIVE', '.stversions']);
 const TERMINAL_INTENT = new Set(['archived', 'delivered', 'done', 'abandoned']);
 const toStdout = process.argv.slice(2).includes('--stdout');
 const today = new Intl.DateTimeFormat('en-CA').format(new Date());
@@ -122,8 +131,74 @@ safe(() => {
   if (n) alerts.push(`${n} proposal(s) pending in INBOX/ → /inbox`);
 });
 
-// --- On-demand skills: read from each SKILL.md frontmatter ---
+// Skill links on this machine ≠ manifest (a skill added, archived or renamed elsewhere):
+// `.claude/` is not synced, each machine must re-run skills-link. A manifest entry whose
+// source is missing is skills-link's own error, not repeated here.
 const manifest = safe(() => JSON.parse(fs.readFileSync(manifestPath, 'utf8')), { skills: [] });
+safe(() => {
+  const want = new Set((manifest.skills ?? [])
+    .filter((s) => fs.existsSync(path.join(ROOT_DIR, 'SKILLS', s.src)))
+    .map((s) => s.name));
+  const dir = path.join(ROOT_DIR, manifest.target || '.claude/skills');
+  const have = new Set(fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => !n.startsWith('.')) : []);
+  const missing = [...want].filter((n) => !have.has(n));
+  const extra = [...have].filter((n) => !want.has(n));
+  if (missing.length || extra.length) {
+    const d = [missing.length && `missing: ${missing.join(', ')}`, extra.length && `extra: ${extra.join(', ')}`].filter(Boolean).join('; ');
+    alerts.push(`skill links ≠ manifest (${d}) → node TOOLS/skills-link.mjs --prune`);
+  }
+});
+
+// Cap on AGENTS.md, loaded in every session: past it, a removal pass (/inbox --prune)
+// takes rules out before any new one goes in.
+safe(() => {
+  const size = fs.statSync(path.join(ROOT_DIR, 'AGENTS.md')).size;
+  if (size > AGENTS_MD_BUDGET) alerts.push(`AGENTS.md at ${size} B (cap ${AGENTS_MD_BUDGET}) → removal pass: /inbox --prune`);
+});
+
+// Maintenance budget (RULES/tools.md): share of the last 7 days' journal entries spent on
+// the framework itself, read from the heading `(project: subject)`. An entry naming several
+// projects (`a, b` or `a + b`) counts pro rata. Silent below the target, and below
+// TOOLING_MIN_ENTRIES (too few entries to mean anything).
+safe(() => {
+  const since = new Intl.DateTimeFormat('en-CA').format(new Date(Date.now() - 7 * 86400000));
+  const logDir = path.join(ROOT_DIR, 'LOG');
+  let all = 0, tool = 0;
+  for (const f of fs.readdirSync(logDir).filter((n) => n.endsWith('.md'))) {
+    const text = fs.readFileSync(path.join(logDir, f), 'utf8');
+    for (const m of text.matchAll(/^## (\d{4}-\d{2}-\d{2})[^\n]*? — [^(\n]*\(([^:)\n]+)/gm)) {
+      if (m[1] < since) continue;
+      const ps = m[2].split(/[,+]/).map((p) => p.trim().toLowerCase()).filter(Boolean);
+      if (!ps.length) continue;
+      all += 1;
+      tool += ps.filter((p) => TOOLING.has(p)).length / ps.length;
+    }
+  }
+  if (all >= TOOLING_MIN_ENTRIES && tool / all > TOOLING_MAX) {
+    alerts.push(`tooling at ${Math.round(100 * tool / all)} % of the journal over 7 days (target < ${100 * TOOLING_MAX} %) → no new tool without removing one`);
+  }
+});
+
+// Sync conflict files (Syncthing `*.sync-conflict-*`, Dropbox `* (conflicted copy …)`):
+// flagged from the first one, with the folders touched (they have two writers). BACKUPS/
+// and ARCHIVE/ hold conflicts already dealt with. A plain readdir walk: ~100 ms for 3,000
+// entries.
+safe(() => {
+  const found = [];
+  const walk = (dir, depth) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name.includes('.sync-conflict-') || e.name.includes(' (conflicted copy')) found.push(path.relative(ROOT_DIR, path.join(dir, e.name)));
+      else if (e.isDirectory() && depth < 8 && !SYNC_SKIP.has(e.name)) safe(() => walk(path.join(dir, e.name), depth + 1));
+    }
+  };
+  walk(ROOT_DIR, 0);
+  if (found.length) {
+    const dirs = [...new Set(found.map((f) => path.dirname(f).replace(/\\/g, '/')))].slice(0, 3).join(', ');
+    alerts.push(`${found.length} sync conflict file(s) (${dirs}) → compare, keep the right version, move the other to BACKUPS/sync-conflicts`);
+  }
+});
+
+// --- On-demand skills: read from each SKILL.md frontmatter ---
 const manifestBySrc = new Map((manifest.skills ?? []).map((s) => [canon(path.join(ROOT_DIR, 'SKILLS', s.src)), s]));
 const onDemandSkills = [];
 for (const f of skillFiles(path.join(ROOT_DIR, 'SKILLS'))) {
